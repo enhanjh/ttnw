@@ -1,0 +1,12 @@
+# kis_devlp.yaml
+# 이 파일은 민감한 정보를 포함하므로, 버전 관리 시스템에 커밋하지 마십시오.
+
+my_app: "YOUR_REAL_APP_KEY"
+my_sec: "YOUR_REAL_APP_SECRET"
+my_acct: "YOUR_REAL_STOCK_ACCOUNT_NUMBER_8_DIGITS"
+my_prod: "01"
+
+my_url: "https://openapi.koreainvestment.com:9443" # 실전투자 API URL
+vps: "https://openapivts.koreainvestment.com:29443" # 모의투자 API URL
+
+my_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/100.0.4896.88 Safari/537.36"
