@@ -29,7 +29,7 @@ function Assets({ portfolioId }) {
 
   const fetchAssets = async () => {
     try {
-      const response = await fetch(`/assets/?portfolio_id=${portfolioId}`);
+      const response = await fetch(`${process.env.REACT_APP_API_URL}/api/assets/?portfolio_id=${portfolioId}`);
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
@@ -44,7 +44,7 @@ function Assets({ portfolioId }) {
 
   const fetchPortfolios = async () => {
     try {
-      const response = await fetch('/portfolios/');
+      const response = await fetch(`${process.env.REACT_APP_API_URL}/api/portfolios/`);
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
@@ -81,7 +81,7 @@ function Assets({ portfolioId }) {
     };
 
     try {
-      const response = await fetch('/assets/', {
+      const response = await fetch(`${process.env.REACT_APP_API_URL}/api/assets/`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -104,8 +104,7 @@ function Assets({ portfolioId }) {
   const handleDelete = async (id) => {
     if (window.confirm("Are you sure you want to delete this asset?")) {
       try {
-        const response = await fetch(`/assets/${id}`, {
-          method: 'DELETE',
+        const response = await fetch(`${process.env.REACT_APP_API_URL}/api/assets/${id}`, {
         });
         if (!response.ok) {
           throw new Error(`HTTP error! status: ${response.status}`);
@@ -218,7 +217,7 @@ function Assets({ portfolioId }) {
       <List>
         {assets.map((asset) => (
           <ListItem
-            key={asset.id}
+            key={asset.id.toString()}
             secondaryAction={
               editingAssetId === asset.id ? (
                 <>
@@ -275,7 +274,7 @@ function Assets({ portfolioId }) {
                     label="Portfolio"
                   >
                     {portfolios.map((portfolio) => (
-                      <MenuItem key={portfolio.id} value={portfolio.id}>
+                      <MenuItem key={portfolio.id.toString()} value={portfolio.id}>
                         {portfolio.name}
                       </MenuItem>
                     ))}

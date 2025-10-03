@@ -19,7 +19,7 @@ function App() {
 
   const handleLogin = async (appKey, appSecret) => {
     try {
-      const response = await fetch('/auth/token', {
+      const response = await fetch(`${process.env.REACT_APP_API_URL}/api/auth/token`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

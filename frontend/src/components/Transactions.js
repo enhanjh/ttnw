@@ -145,7 +145,7 @@ function Transactions() {
 
   const fetchTransactions = useCallback(async () => {
     try {
-      const response = await fetch('/transactions/');
+      const response = await fetch(`${process.env.REACT_APP_API_URL}/api/transactions/`);
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
@@ -159,7 +159,7 @@ function Transactions() {
 
   const fetchAssets = useCallback(async () => {
     try {
-      const response = await fetch('/assets/');
+      const response = await fetch(`${process.env.REACT_APP_API_URL}/api/assets/`);
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
@@ -172,7 +172,7 @@ function Transactions() {
 
   const fetchPortfolios = useCallback(async () => {
     try {
-      const response = await fetch('/portfolios/');
+      const response = await fetch(`${process.env.REACT_APP_API_URL}/api/portfolios/`);
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
@@ -232,7 +232,7 @@ function Transactions() {
     };
 
     try {
-      const response = await fetch('/transactions/', {
+      const response = await fetch(`${process.env.REACT_APP_API_URL}/api/transactions/`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -264,7 +264,7 @@ function Transactions() {
   const handleDelete = useCallback(async (id) => {
     if (window.confirm("Are you sure you want to delete this transaction?")) {
       try {
-        const response = await fetch(`/transactions/${id}`, {
+const response = await fetch(`${process.env.REACT_APP_API_URL}/api/transactions/${id}`, {
           method: 'DELETE',
         });
         if (!response.ok) {

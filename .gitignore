@@ -1,2 +1,5 @@
 *.pyc
-venv/*
+ttnw/*
+
+# Ignore environment variables files
+**/.env

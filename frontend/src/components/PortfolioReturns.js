@@ -26,7 +26,7 @@ function PortfolioReturns() {
 
   const fetchPortfolios = async () => {
     try {
-      const response = await fetch('/portfolios/');
+      const response = await fetch(`${process.env.REACT_APP_API_URL}/api/portfolios/`);
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
@@ -40,7 +40,7 @@ function PortfolioReturns() {
 
   const fetchOldestTransactionDate = useCallback(async (portfolioId) => {
     try {
-      const response = await fetch(`/transactions/?portfolio_id=${portfolioId}`);
+      const response = await fetch(`${process.env.REACT_APP_API_URL}/api/transactions/?portfolio_id=${portfolioId}`);
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
@@ -85,7 +85,7 @@ function PortfolioReturns() {
     setError(null);
     setReturnsData(null);
     try {
-      const response = await fetch(`/portfolio_returns/${selectedPortfolio}?start_date=${startDate}&end_date=${endDate}`);
+      const response = await fetch(`${process.env.REACT_APP_API_URL}/api/portfolio_returns/${selectedPortfolio}?start_date=${startDate}&end_date=${endDate}`);
       if (!response.ok) {
         const errorData = await response.json();
         throw new Error(errorData.detail || `HTTP error! status: ${response.status}`);

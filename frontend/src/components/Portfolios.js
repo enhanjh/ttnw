@@ -19,7 +19,7 @@ function Portfolios() {
 
   const fetchPortfolios = async () => {
     try {
-      const response = await fetch('/portfolios/');
+      const response = await fetch(`${process.env.REACT_APP_API_URL}/api/portfolios/`);
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
@@ -39,7 +39,7 @@ function Portfolios() {
     if (!newPortfolioName) return;
 
     try {
-      const response = await fetch('/portfolios/', {
+      const response = await fetch(`${process.env.REACT_APP_API_URL}/api/portfolios/`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -61,7 +61,7 @@ function Portfolios() {
   const handleDelete = async (id) => {
     if (window.confirm("Are you sure you want to delete this portfolio?")) {
       try {
-        const response = await fetch(`/portfolios/${id}`, {
+        const response = await fetch(`${process.env.REACT_APP_API_URL}/api/portfolios/${id}`, {
           method: 'DELETE',
         });
         if (!response.ok) {
@@ -140,7 +140,7 @@ function Portfolios() {
           <List component={Paper} sx={{ width: '100%', bgcolor: 'background.paper' }}>
             {portfolios.map((portfolio) => (
               <ListItem
-                key={portfolio.id}
+                key={portfolio.id.toString()}
                 secondaryAction={
                   <>
                     <Button variant="outlined" onClick={() => handlePortfolioClick(portfolio.id)} sx={{ mr: 1 }}>

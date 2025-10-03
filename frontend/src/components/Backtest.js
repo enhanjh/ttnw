@@ -39,7 +39,7 @@ function Backtest() {
     const symbolsArray = symbols.split(',').map(s => s.trim().toUpperCase()).filter(s => s);
 
     try {
-      const response = await fetch('/backtest/buy_and_hold', {
+      const response = await fetch(`${process.env.REACT_APP_API_URL}/api/backtest/buy_and_hold`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

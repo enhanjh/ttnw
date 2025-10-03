@@ -1,19 +1,44 @@
-from sqlalchemy import create_engine
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
+import motor.motor_asyncio
+from beanie import init_beanie
+from typing import Optional
+import os
 
-# SQLite 연결 정보
-DATABASE_URL = "sqlite:///./portfolio.db"
+from . import models
 
-engine = create_engine(
-    DATABASE_URL, connect_args={"check_same_thread": False} # SQLite에만 필요
-)
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-Base = declarative_base()
+DATABASE_URL = os.getenv("DATABASE_URL", "mongodb://localhost:27017")
+client: Optional[motor.motor_asyncio.AsyncIOMotorClient] = None
+db = None
+
+async def init_db():
+    """
+    Initializes the database connection and Beanie ODM.
+    """
+    global client, db
+    client = motor.motor_asyncio.AsyncIOMotorClient(DATABASE_URL)
+    db = client.ttnw
+    
+    await init_beanie(
+        database=db,
+        document_models=[
+            models.Portfolio,
+            models.Asset,
+            models.Transaction,
+            models.US_Symbol,
+            models.KOSPI_Symbol,
+            models.KOSDAQ_Symbol,
+        ],
+    )
 
 def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
+    """
+    Returns the database instance.
+    """
+    return db
+
+def close_db():
+    """
+    Closes the database connection.
+    """
+    global client
+    if client:
+        client.close()
