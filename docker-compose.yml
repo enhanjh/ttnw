@@ -1,0 +1,119 @@
+services:
+  # 1. MongoDB (데이터베이스) - 프로덕션 환경에서 로컬 실행 시 사용
+  mongodb:
+    image: mongo:4.4.6
+    container_name: ttnw-mongodb
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    profiles:
+      - prod_infra
+
+  # 2. Redis (메시지 브로커) - 프로덕션 환경에서 로컬 실행 시 사용
+  redis:
+    image: redis:8.2
+    container_name: ttnw-redis
+    ports:
+      - "6379:6379"
+    profiles:
+      - prod_infra
+
+  # 3. Init Redis (Cleans stale tasks on startup)
+  init-redis:
+    build: .
+    container_name: ttnw-init-redis
+    command: python workers/flush_redis.py
+    env_file:
+      - .env
+    environment:
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
+    volumes:
+      - .:/app
+
+  # 4. Backend API Server
+  backend:
+    build: .
+    container_name: ttnw-backend
+    command: uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      - PYTHONUNBUFFERED=1
+      - DATABASE_URL=${DATABASE_URL:-mongodb://mongodb:27017}
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
+    volumes:
+      - .:/app
+
+  # 5. Celery Worker
+  worker:
+    build: .
+    container_name: ttnw-worker
+    command: celery -A workers.celery_app worker --loglevel=info --concurrency=1
+    env_file:
+      - .env
+    environment:
+      - PYTHONUNBUFFERED=1
+      - DATABASE_URL=${DATABASE_URL:-mongodb://mongodb:27017}
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
+    depends_on:
+      backend:
+        condition: service_started
+      init-redis:
+        condition: service_completed_successfully
+    volumes:
+      - .:/app
+
+  # 6. Scheduler
+  scheduler:
+    build: .
+    container_name: ttnw-scheduler
+    command: python workers/scheduler.py
+    env_file:
+      - .env
+    environment:
+      - PYTHONUNBUFFERED=1
+      - DATABASE_URL=${DATABASE_URL:-mongodb://mongodb:27017}
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
+    depends_on:
+      worker:
+        condition: service_started
+      init-redis:
+        condition: service_completed_successfully
+    volumes:
+      - .:/app
+
+  # 7. Frontend
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.frontend
+    container_name: ttnw-frontend
+    command: npm start
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    depends_on:
+      - backend
+
+  # 8. Telegram Bot
+  telebot:
+    build: .
+    container_name: ttnw-telebot
+    command: python workers/telegram_bot.py
+    env_file:
+      - .env
+    environment:
+      - PYTHONUNBUFFERED=1
+      - DATABASE_URL=${DATABASE_URL:-mongodb://mongodb:27017}
+    depends_on:
+      - backend
+    volumes:
+      - .:/app
+
+volumes:
+  mongodb_data:

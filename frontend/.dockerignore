@@ -1,0 +1,18 @@
+# Node.js
+node_modules
+build
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# IDE
+.vscode
+.idea
+
+# Logs
+*.log
+
+# Git
+.git
+.gitignore

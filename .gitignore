@@ -1,2 +1,13 @@
 *.pyc
-venv/*
+ttnw/*
+logs/*
+install/*
+
+KIS*
+opendart*
+
+data/**
+*.log
+
+# Ignore environment variables files
+**/.env

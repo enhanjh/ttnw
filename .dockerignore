@@ -1,0 +1,34 @@
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+ttnw/
+.env
+
+# Node.js (Frontend)
+frontend/node_modules
+node_modules
+
+# Data & Logs
+data/
+logs/
+*.log
+mongodb_data/
+
+# Docker
+docker-compose.yml
+Dockerfile
+Dockerfile.frontend
+.dockerignore
+
+# IDE
+.vscode
+.idea

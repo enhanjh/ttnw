@@ -16,14 +16,19 @@
     "react-chartjs-2": "^5.3.0",
     "react-dom": "^19.1.0",
     "react-router-dom": "^7.6.3",
-    "react-scripts": "5.0.1",
     "web-vitals": "^2.1.4"
   },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "jsdom": "^25.0.1",
+    "vite": "^6.0.7",
+    "vitest": "^2.1.8"
+  },
   "scripts": {
-    "start": "react-scripts start",
-    "build": "react-scripts build",
-    "test": "react-scripts test",
-    "eject": "react-scripts eject"
+    "start": "vite",
+    "build": "vite build",
+    "test": "vitest",
+    "preview": "vite preview"
   },
   "eslintConfig": {
     "extends": [
@@ -31,7 +36,6 @@
       "react-app/jest"
     ]
   },
-  "proxy": "http://localhost:8000",
   "browserslist": {
     "production": [
       ">0.2%",

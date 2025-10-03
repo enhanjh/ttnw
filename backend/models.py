@@ -1,66 +1,109 @@
-from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, UniqueConstraint
-from sqlalchemy.orm import relationship
-from sqlalchemy.sql import func
+from beanie import Document, Link, PydanticObjectId
+from pydantic import BaseModel, Field
+from datetime import datetime
+from typing import List, Optional, Dict
 
-from .database import Base
+from . import schemas
 
-class Portfolio(Base):
-    __tablename__ = "portfolios"
+class Portfolio(Document):
+    name: str = Field(..., max_length=50)
+    manager: Optional[str] = Field(None, max_length=50)
+    environment: str = Field("live", max_length=50) # 'live' or 'backtest'
+    status: str = Field("active", max_length=50) # 'active' or 'inactive'
+    broker_provider: Optional[str] = Field(None, max_length=50) # e.g., 'hantoo_vps', 'hantoo_prod'
+    broker_account_no: Optional[str] = Field(None, max_length=50)
+    allowed_telegram_ids: Optional[List[int]] = Field(default_factory=list)
+    strategy: Optional[Link['Strategy']] = None
+    created_at: datetime = Field(default_factory=datetime.now)
 
-    id = Column(Integer, primary_key=True, index=True)
-    name = Column(String, unique=True, index=True)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    class Settings:
+        name = "portfolios"
 
-    assets = relationship("Asset", back_populates="portfolio")
-    transactions = relationship("Transaction", back_populates="portfolio")
+class Asset(Document):
+    symbol: str = Field(..., max_length=50)
+    name: str = Field(..., max_length=100)
+    asset_type: str = Field(..., max_length=50)
+    minimum_tradable_quantity: Optional[float] = Field(1.0, description="Minimum tradable quantity for this asset")
 
-class Asset(Base):
-    __tablename__ = "assets"
+    class Settings:
+        name = "assets"
 
-    id = Column(Integer, primary_key=True, index=True)
-    symbol = Column(String, index=True) # Removed unique=True
-    name = Column(String)
-    asset_type = Column(String) # e.g., 'stock', 'bond', 'fund'
-    portfolio_id = Column(Integer, ForeignKey("portfolios.id"))
+class Transaction(Document):
+    asset_id: PydanticObjectId
+    portfolio_id: PydanticObjectId
+    transaction_type: str
+    quantity: float
+    price: float
+    fee: float = 0.0
+    tax: float = 0.0
+    transaction_date: datetime = Field(default_factory=datetime.now)
 
-    portfolio = relationship("Portfolio", back_populates="assets")
-    transactions = relationship("Transaction", back_populates="asset")
+    class Settings:
+        name = "transactions"
 
-    __table_args__ = (UniqueConstraint('symbol', 'portfolio_id', name='_symbol_portfolio_uc'),)
 
-class Transaction(Base):
-    __tablename__ = "transactions"
+class VirtualTransaction(Document):
+    asset_id: PydanticObjectId
+    portfolio_id: PydanticObjectId # This will be the virtual portfolio ID
+    backtest_result_id: PydanticObjectId # Link to the BacktestResult
+    transaction_type: str
+    quantity: float
+    price: float
+    fee: float = 0.0
+    tax: float = 0.0
+    transaction_date: datetime = Field(default_factory=datetime.now)
 
-    id = Column(Integer, primary_key=True, index=True)
-    asset_id = Column(Integer, ForeignKey("assets.id"))
-    portfolio_id = Column(Integer, ForeignKey("portfolios.id"))
-    transaction_type = Column(String) # 'buy' or 'sell'
-    quantity = Column(Float)
-    price = Column(Float)
-    fee = Column(Float, default=0.0)
-    tax = Column(Float, default=0.0)
-    transaction_date = Column(DateTime(timezone=True), server_default=func.now())
+    class Settings:
+        name = "virtual_transactions" # Separate collection for virtual transactions
 
-    asset = relationship("Asset", back_populates="transactions")
-    portfolio = relationship("Portfolio", back_populates="transactions")
+class US_Symbol(Document):
+    symbol: str = Field(..., max_length=50)
+    name: str = Field(..., max_length=100)
+    last_updated: datetime = Field(default_factory=datetime.now)
 
-class US_Symbol(Base):
-    __tablename__ = "us_symbols"
-    id = Column(Integer, primary_key=True, index=True)
-    symbol = Column(String, unique=True, index=True)
-    name = Column(String)
-    last_updated = Column(DateTime(timezone=True), server_default=func.now())
+    class Settings:
+        name = "us_symbols"
 
-class KOSPI_Symbol(Base):
-    __tablename__ = "kospi_symbols"
-    id = Column(Integer, primary_key=True, index=True)
-    symbol = Column(String, unique=True, index=True)
-    name = Column(String)
-    last_updated = Column(DateTime(timezone=True), server_default=func.now())
+class KOSPI_Symbol(Document):
+    symbol: str = Field(..., max_length=50)
+    name: str = Field(..., max_length=100)
+    last_updated: datetime = Field(default_factory=datetime.now)
 
-class KOSDAQ_Symbol(Base):
-    __tablename__ = "kosdaq_symbols"
-    id = Column(Integer, primary_key=True, index=True)
-    symbol = Column(String, unique=True, index=True)
-    name = Column(String)
-    last_updated = Column(DateTime(timezone=True), server_default=func.now())
+    class Settings:
+        name = "kospi_symbols"
+
+class KOSDAQ_Symbol(Document):
+    symbol: str = Field(..., max_length=50)
+    name: str = Field(..., max_length=100)
+    last_updated: datetime = Field(default_factory=datetime.now)
+
+    class Settings:
+        name = "kosdaq_symbols"
+
+
+class Strategy(Document):
+    name: str = Field(..., max_length=100)
+    description: Optional[str] = None
+    strategy_type: str = Field(..., max_length=50)
+    parameters: Optional[schemas.StrategyParameters] = None
+    created_at: datetime = Field(default_factory=datetime.now)
+
+    class Settings:
+        name = "strategies"
+
+class BacktestResult(Document):
+    name: str = Field(..., max_length=100)
+    virtual_portfolio_id: PydanticObjectId
+    strategy: Link[Strategy] # Link directly to the Strategy document
+    start_date: datetime
+    end_date: datetime
+    initial_capital: float
+
+    created_at: datetime = Field(default_factory=datetime.now)
+
+    model_config = {
+        "extra": "allow"
+    }
+
+    class Settings:
+        name = "backtest_results"
