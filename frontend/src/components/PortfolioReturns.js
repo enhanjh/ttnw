@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { TextField, Button, Select, MenuItem, InputLabel, FormControl, Paper, Typography, Box } from '@mui/material';
 import { Line } from 'react-chartjs-2';
 import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend } from 'chart.js';
+import { fetchApi } from '../api';
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend);
 
@@ -26,11 +27,7 @@ function PortfolioReturns() {
 
   const fetchPortfolios = async () => {
     try {
-      const response = await fetch('/portfolios/');
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      const data = await response.json();
+      const data = await fetchApi('/api/portfolios/');
       setPortfolios(data);
     } catch (error) {
       console.error("Error fetching portfolios:", error);
@@ -40,11 +37,7 @@ function PortfolioReturns() {
 
   const fetchOldestTransactionDate = useCallback(async (portfolioId) => {
     try {
-      const response = await fetch(`/transactions/?portfolio_id=${portfolioId}`);
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      const data = await response.json();
+      const data = await fetchApi(`/api/transactions/?portfolio_id=${portfolioId}`);
       if (data.length > 0) {
         const oldestDate = data.reduce((minDate, transaction) => {
           const transactionDate = new Date(transaction.transaction_date);
@@ -85,12 +78,7 @@ function PortfolioReturns() {
     setError(null);
     setReturnsData(null);
     try {
-      const response = await fetch(`/portfolio_returns/${selectedPortfolio}?start_date=${startDate}&end_date=${endDate}`);
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.detail || `HTTP error! status: ${response.status}`);
-      }
-      const data = await response.json();
+      const data = await fetchApi(`/api/portfolio_returns/${selectedPortfolio}?start_date=${startDate}&end_date=${endDate}`);
       setReturnsData(data);
     } catch (error) {
       console.error("Error fetching portfolio returns:", error);

@@ -1,0 +1,22 @@
+service: ttnw-backend
+
+frameworkVersion: '3'
+
+provider:
+  name: aws
+  runtime: python3.9
+  region: ap-northeast-2 # 서울 리전
+  environment:
+    DATABASE_URL: ${param:db_url} # 배포 시 CLI를 통해 주입
+
+functions:
+  api:
+    handler: main.handler
+    url: true # API Gateway HTTP API를 생성하고 Lambda와 연결
+
+plugins:
+  - serverless-python-requirements
+
+custom:
+  pythonRequirements:
+    dockerizePip: non-linux # Windows/macOS에서 빌드 시 필요

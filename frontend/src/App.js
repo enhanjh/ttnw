@@ -1,25 +1,43 @@
 import React, { useState } from 'react';
-import { Container, AppBar, Toolbar, Typography, Tabs, Tab, Card, CardContent, Button } from '@mui/material';
+import { Container, AppBar, Toolbar, Typography, Tabs, Tab, Card, CardContent, Button, Box } from '@mui/material';
 import Transactions from './components/Transactions';
 import Backtest from './components/Backtest';
 import Portfolios from './components/Portfolios';
 import PortfolioReturns from './components/PortfolioReturns';
 import LoginPopup from './components/LoginPopup';
+import StrategyManager from './components/StrategyManager';
 import './App.css';
 
 function App() {
-  const [selectedTab, setSelectedTab] = useState(0);
+  const [selectedTab, setSelectedTab] = useState(0); // 0 for Portfolio Management, 1 for Backtesting & Strategies
+  const [selectedPortfolioSubTab, setSelectedPortfolioSubTab] = useState(0); // 0: Portfolios, 1: Transactions, 2: Portfolio Returns
+  const [selectedBacktestSubTab, setSelectedBacktestSubTab] = useState(0); // 0: Backtest, 1: Strategies
+
   const [isLoginOpen, setIsLoginOpen] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [authError, setAuthError] = useState(null);
 
   const handleTabChange = (event, newValue) => {
     setSelectedTab(newValue);
+    // Reset sub-tabs when main tab changes
+    if (newValue === 0) {
+      setSelectedPortfolioSubTab(0);
+    } else {
+      setSelectedBacktestSubTab(0);
+    }
+  };
+
+  const handlePortfolioSubTabChange = (event, newValue) => {
+    setSelectedPortfolioSubTab(newValue);
+  };
+
+  const handleBacktestSubTabChange = (event, newValue) => {
+    setSelectedBacktestSubTab(newValue);
   };
 
   const handleLogin = async (appKey, appSecret) => {
     try {
-      const response = await fetch('/auth/token', {
+      const response = await fetch(`${process.env.REACT_APP_API_URL}/api/auth/token`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -56,9 +74,11 @@ function App() {
     <Container>
       <AppBar position="static">
         <Toolbar>
-          <Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>
-            Portfolio Manager
-          </Typography>
+          <Tabs value={selectedTab} onChange={handleTabChange} textColor="inherit" indicatorColor="white" sx={{ marginLeft: -2 }}>
+            <Tab label="Portfolio Management" />
+            <Tab label="Backtesting & Strategies" />
+          </Tabs>
+          <Box sx={{ flexGrow: 1 }} /> {/* Spacer to push login button to the right */}
           {isAuthenticated ? (
             <Button color="inherit" onClick={handleLogout}>Logout</Button>
           ) : (
@@ -68,19 +88,33 @@ function App() {
       </AppBar>
       <LoginPopup open={isLoginOpen} onClose={handleCloseLogin} onLogin={handleLogin} />
       {authError && <Typography color="error">{authError}</Typography>}
-      <Tabs value={selectedTab} onChange={handleTabChange} centered>
-        <Tab label="Portfolios" />
-        <Tab label="Transactions" />
-        <Tab label="Portfolio Returns" />
-        <Tab label="Backtest" />
-      </Tabs>
 
-      <Card sx={{ marginTop: 2 }}>
+
+      <Card sx={{ marginTop: 0 }}>
         <CardContent>
-          {selectedTab === 0 && <Portfolios />}
-          {selectedTab === 1 && <Transactions />}
-          {selectedTab === 2 && <PortfolioReturns />}
-          {selectedTab === 3 && <Backtest />}
+          {selectedTab === 0 && ( // Portfolio Management
+            <>
+              <Tabs value={selectedPortfolioSubTab} onChange={handlePortfolioSubTabChange} sx={{ mb: 2 }}>
+                <Tab label="Portfolios" />
+                <Tab label="Transactions" />
+                <Tab label="Portfolio Returns" />
+              </Tabs>
+              {selectedPortfolioSubTab === 0 && <Portfolios />}
+              {selectedPortfolioSubTab === 1 && <Transactions />}
+              {selectedPortfolioSubTab === 2 && <PortfolioReturns />}
+            </>
+          )}
+
+          {selectedTab === 1 && ( // Backtesting & Strategies
+            <>
+              <Tabs value={selectedBacktestSubTab} onChange={handleBacktestSubTabChange} sx={{ mb: 2 }}>
+                <Tab label="Backtest" />
+                <Tab label="Strategies" />
+              </Tabs>
+              {selectedBacktestSubTab === 0 && <Backtest />}
+              {selectedBacktestSubTab === 1 && <StrategyManager />}
+            </>
+          )}
         </CardContent>
       </Card>
     </Container>

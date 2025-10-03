@@ -5,6 +5,7 @@ import EditIcon from '@mui/icons-material/Edit';
 import SaveIcon from '@mui/icons-material/Save';
 import CancelIcon from '@mui/icons-material/Cancel';
 import Assets from './Assets'; // Import Assets component
+import { fetchApi } from '../api';
 
 function Portfolios() {
   const [portfolios, setPortfolios] = useState([]);
@@ -19,11 +20,7 @@ function Portfolios() {
 
   const fetchPortfolios = async () => {
     try {
-      const response = await fetch('/portfolios/');
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      const data = await response.json();
+      const data = await fetchApi('/api/portfolios/');
       setPortfolios(data);
     } catch (error) {
       console.error("Error fetching portfolios:", error);
@@ -39,16 +36,13 @@ function Portfolios() {
     if (!newPortfolioName) return;
 
     try {
-      const response = await fetch('/portfolios/', {
+      await fetchApi('/api/portfolios/', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ name: newPortfolioName }),
       });
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
       setNewPortfolioName('');
       fetchPortfolios(); // Refresh the list
       alert("Portfolio added successfully!");
@@ -61,12 +55,9 @@ function Portfolios() {
   const handleDelete = async (id) => {
     if (window.confirm("Are you sure you want to delete this portfolio?")) {
       try {
-        const response = await fetch(`/portfolios/${id}`, {
+        await fetchApi(`/api/portfolios/${id}`, {
           method: 'DELETE',
         });
-        if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
-        }
         fetchPortfolios(); // Refresh the list
         alert("Portfolio deleted successfully!");
         if (selectedPortfolioId === id) {
@@ -86,16 +77,13 @@ function Portfolios() {
 
   const handleSave = async (id) => {
     try {
-      const response = await fetch(`/portfolios/${id}`, {
+      await fetchApi(`/api/portfolios/${id}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ name: editedPortfolioName }),
       });
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
       setEditingPortfolioId(null);
       setEditedPortfolioName('');
       fetchPortfolios(); // Refresh the list
@@ -140,7 +128,7 @@ function Portfolios() {
           <List component={Paper} sx={{ width: '100%', bgcolor: 'background.paper' }}>
             {portfolios.map((portfolio) => (
               <ListItem
-                key={portfolio.id}
+                key={portfolio.id.toString()}
                 secondaryAction={
                   <>
                     <Button variant="outlined" onClick={() => handlePortfolioClick(portfolio.id)} sx={{ mr: 1 }}>

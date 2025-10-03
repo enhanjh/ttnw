@@ -1,0 +1,16 @@
+service: ttnw-frontend
+
+frameworkVersion: '3'
+
+provider:
+  name: aws
+  region: ap-northeast-2 # 서울 리전
+
+plugins:
+  - serverless-s3-sync
+
+custom:
+  s3Sync:
+    - bucketName: ttnw-frontend-bucket-${sls:stage} # S3 버킷 이름 (전역적으로 고유해야 함)
+      bucketPrefix: ""
+      folder: "build"

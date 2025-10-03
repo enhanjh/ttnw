@@ -1,24 +1,35 @@
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict
 from datetime import datetime
-from typing import Optional, Union
+from typing import Optional, Union, Dict, List, Literal
+from beanie import PydanticObjectId
+from bson import ObjectId # Import ObjectId for json_encoders
+
+class AuthRequest(BaseModel):
+    appkey: str
+    appsecret: str
 
 class AssetBase(BaseModel):
     symbol: str
     name: str
-    asset_type: str
-    portfolio_id: int
+    asset_type: Literal["stock_us", "stock_kr_kospi", "stock_kr_kosdaq", "cash"] # Example allowed types
+    portfolio_id: PydanticObjectId # Changed back to PydanticObjectId
+    minimum_tradable_quantity: Optional[float] = 1.0
 
 class AssetCreate(AssetBase):
     pass
 
 class Asset(AssetBase):
-    id: int
+    id: PydanticObjectId = Field() # Changed back to PydanticObjectId
 
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(
+        from_attributes=True,
+        arbitrary_types_allowed=True,
+        json_encoders={ObjectId: str} # Add custom encoder
+    )
 
 class TransactionBase(BaseModel):
-    asset_id: Union[int, str]
-    portfolio_id: int
+    asset_id: PydanticObjectId # Changed back to PydanticObjectId
+    portfolio_id: PydanticObjectId # Changed back to PydanticObjectId
     transaction_type: str
     quantity: float
     price: float
@@ -30,9 +41,13 @@ class TransactionCreate(TransactionBase):
     pass
 
 class Transaction(TransactionBase):
-    id: int
+    id: PydanticObjectId = Field() # Changed back to PydanticObjectId
 
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(
+        from_attributes=True,
+        arbitrary_types_allowed=True,
+        json_encoders={ObjectId: str} # Add custom encoder
+    )
 
 class PortfolioBase(BaseModel):
     name: str
@@ -41,7 +56,84 @@ class PortfolioCreate(PortfolioBase):
     pass
 
 class Portfolio(PortfolioBase):
-    id: int
+    id: PydanticObjectId = Field() # Changed back to PydanticObjectId
     created_at: datetime
 
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(
+        from_attributes=True,
+        arbitrary_types_allowed=True,
+        json_encoders={ObjectId: str} # Add custom encoder
+    )
+
+
+class StrategyParameters(BaseModel):
+
+    asset_weights: Optional[Dict[str, float]] = Field(None, description="Dictionary of asset symbols to their target weights (e.g., {'AAPL': 0.5, 'MSFT': 0.5})")
+
+    rebalancing_frequency: str = Field(..., description="Frequency of rebalancing (e.g., 'monthly', 'quarterly', 'annual', 'never')")
+    rebalancing_threshold: Optional[float] = Field(None, description="Percentage deviation from target weight to trigger rebalancing (e.g., 0.05 for 5%)")
+
+    # Momentum Strategy Parameters
+    asset_pool: Optional[List[str]] = Field(None, description="List of asset symbols to consider for momentum strategy")
+    lookback_period_months: Optional[int] = Field(None, description="Lookback period in months for momentum calculation")
+    top_n_assets: Optional[int] = Field(None, description="Number of top assets to select based on momentum")
+    risk_free_asset_ticker: Optional[str] = Field(None, description="Ticker for the risk-free asset (e.g., FRED series ID for 1-Year Treasury)")
+
+    # Example for strategy-specific parameters (optional)
+    moving_average_period_short: Optional[int] = None
+    moving_average_period_long: Optional[int] = None
+
+class StrategyCreate(BaseModel):
+    name: str = Field(..., max_length=100)
+    description: Optional[str] = None
+    strategy_type: str = Field(..., max_length=50)
+    parameters: StrategyParameters # Use the detailed parameters schema
+
+class StrategyBacktestRequest(BaseModel):
+    strategy_id: PydanticObjectId
+    portfolio_id: PydanticObjectId
+    start_date: str
+    end_date: str
+    initial_capital: float = 100000.0
+    debug: bool = False
+
+class Strategy(StrategyCreate):
+    id: PydanticObjectId = Field(...)
+    created_at: datetime
+
+    model_config = ConfigDict(
+        from_attributes=True,
+        arbitrary_types_allowed=True,
+        json_encoders={ObjectId: str}
+    )
+
+class BacktestResultBase(BaseModel):
+    name: str
+    start_date: datetime
+    end_date: datetime
+    initial_capital: float
+
+    final_capital: float
+    annualized_return: float
+    volatility: float
+    max_drawdown: float
+    sharpe_ratio: float
+
+    portfolio_value: List[Dict]
+    returns: Dict[str, float]
+    cumulative_returns: Dict[str, float]
+    transactions: List[Dict]
+
+class BacktestResultCreate(BacktestResultBase):
+    strategy_id: PydanticObjectId
+
+class BacktestResult(BacktestResultBase):
+    id: PydanticObjectId = Field(...)
+    strategy: Strategy # Changed from strategy_id
+    created_at: datetime
+
+    model_config = ConfigDict(
+        from_attributes=True,
+        arbitrary_types_allowed=True,
+        json_encoders={ObjectId: str}
+    )

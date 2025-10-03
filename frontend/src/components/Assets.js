@@ -1,9 +1,10 @@
-import React, { useState, useEffect } from 'react';
-import { Autocomplete, TextField, Button, List, ListItem, ListItemText, FormControl, InputLabel, Select, MenuItem, IconButton } from '@mui/material';
+import React, { useState, useEffect, useCallback } from 'react';
+import { Autocomplete, TextField, Button, List, ListItem, ListItemText, FormControl, InputLabel, Select, MenuItem, IconButton, Box } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
 import EditIcon from '@mui/icons-material/Edit';
 import SaveIcon from '@mui/icons-material/Save';
 import CancelIcon from '@mui/icons-material/Cancel';
+import { fetchApi } from '../api';
 
 function Assets({ portfolioId }) {
   const [assets, setAssets] = useState([]);
@@ -13,47 +14,42 @@ function Assets({ portfolioId }) {
   const [selectedName, setSelectedName] = useState('');
   const [selectedPortfolio, setSelectedPortfolio] = useState('');
   const [selectedCountry, setSelectedCountry] = useState('US'); // Default to US
+  const [newMinTradeQty, setNewMinTradeQty] = useState(1.0);
   const [editingAssetId, setEditingAssetId] = useState(null);
   const [editedAsset, setEditedAsset] = useState({
     symbol: '',
     name: '',
     asset_type: '',
     portfolio_id: '',
+    minimum_tradable_quantity: 1.0,
   });
 
-  useEffect(() => {
-    fetchAssets();
-    
-    fetchPortfolios();
-  }, [portfolioId]);
-
-  const fetchAssets = async () => {
+  const fetchAssets = useCallback(async () => {
+    if (!portfolioId) {
+      setAssets([]);
+      return;
+    }
     try {
-      const response = await fetch(`/assets/?portfolio_id=${portfolioId}`);
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      const data = await response.json();
+      const data = await fetchApi(`/api/assets/?portfolio_id=${portfolioId}`);
       setAssets(data);
     } catch (error) {
       console.error("Error fetching assets:", error);
     }
-  };
+  }, [portfolioId]);
 
-  
-
-  const fetchPortfolios = async () => {
+  const fetchPortfolios = useCallback(async () => {
     try {
-      const response = await fetch('/portfolios/');
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      const data = await response.json();
+      const data = await fetchApi('/api/portfolios/');
       setPortfolios(data);
     } catch (error) {
       console.error("Error fetching portfolios:", error);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    fetchAssets();
+    fetchPortfolios();
+  }, [fetchAssets, fetchPortfolios]);
 
   const handleSymbolChange = (event) => {
     setSelectedSymbol(event.target.value);
@@ -78,19 +74,17 @@ function Assets({ portfolioId }) {
       name: selectedName,
       asset_type: selectedCountry === 'US' ? 'stock_us' : (selectedCountry === 'KR' ? 'stock_kr_kospi' : 'stock_kr_kosdaq'),
       portfolio_id: portfolioId,
+      minimum_tradable_quantity: parseFloat(newMinTradeQty),
     };
 
     try {
-      const response = await fetch('/assets/', {
+      await fetchApi('/api/assets/', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(newAsset),
       });
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
       setSelectedSymbol('');
       setSelectedName('');
       fetchAssets(); // Refresh the list
@@ -104,12 +98,9 @@ function Assets({ portfolioId }) {
   const handleDelete = async (id) => {
     if (window.confirm("Are you sure you want to delete this asset?")) {
       try {
-        const response = await fetch(`/assets/${id}`, {
+        await fetchApi(`/api/assets/${id}`, {
           method: 'DELETE',
         });
-        if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
-        }
         fetchAssets(); // Refresh the list
         alert("Asset deleted successfully!");
       } catch (error) {
@@ -126,21 +117,19 @@ function Assets({ portfolioId }) {
       name: asset.name,
       asset_type: asset.asset_type,
       portfolio_id: asset.portfolio_id,
+      minimum_tradable_quantity: asset.minimum_tradable_quantity || 1.0,
     });
   };
 
   const handleSave = async (id) => {
     try {
-      const response = await fetch(`/assets/${id}`, {
+      await fetchApi(`/api/assets/${id}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(editedAsset),
       });
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
       setEditingAssetId(null);
       setEditedAsset({
         symbol: '',
@@ -163,6 +152,7 @@ function Assets({ portfolioId }) {
       name: '',
       asset_type: '',
       portfolio_id: '',
+      minimum_tradable_quantity: 1.0,
     });
   };
 
@@ -178,8 +168,8 @@ function Assets({ portfolioId }) {
       <h2>Manage Assets</h2>
 
       <h3>Add New Asset</h3>
-      <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '20px' }}>
-        <FormControl fullWidth>
+      <Box component="form" onSubmit={handleSubmit} sx={{ display: 'flex', gap: 2, alignItems: 'center', mb: 2 }}>
+        <FormControl sx={{ minWidth: 150 }}>
           <InputLabel id="country-select-label">Country</InputLabel>
           <Select
             labelId="country-select-label"
@@ -197,28 +187,31 @@ function Assets({ portfolioId }) {
           value={selectedSymbol}
           onChange={handleSymbolChange}
           variant="outlined"
-          fullWidth
-          sx={{ mb: 2 }}
         />
         <TextField
           label="Name"
           value={selectedName}
           onChange={(e) => setSelectedName(e.target.value)}
           variant="outlined"
-          fullWidth
-          sx={{ mb: 2 }}
         />
-        <Button type="submit" variant="contained" color="primary">
+        <TextField
+          label="Min. Trade Qty"
+          type="number"
+          value={newMinTradeQty}
+          onChange={(e) => setNewMinTradeQty(e.target.value)}
+          variant="outlined"
+          sx={{ width: 150 }}
+        />
+        <Button type="submit" variant="contained" color="primary" sx={{ ml: 'auto' }}>
           Add Asset
         </Button>
-        
-      </form>
+      </Box>
 
       <h3>Existing Assets</h3>
       <List>
         {assets.map((asset) => (
           <ListItem
-            key={asset.id}
+            key={asset.id.toString()}
             secondaryAction={
               editingAssetId === asset.id ? (
                 <>
@@ -275,12 +268,21 @@ function Assets({ portfolioId }) {
                     label="Portfolio"
                   >
                     {portfolios.map((portfolio) => (
-                      <MenuItem key={portfolio.id} value={portfolio.id}>
+                      <MenuItem key={portfolio.id.toString()} value={portfolio.id}>
                         {portfolio.name}
                       </MenuItem>
                     ))}
                   </Select>
                 </FormControl>
+                <TextField
+                  label="Min. Trade Qty"
+                  type="number"
+                  value={editedAsset.minimum_tradable_quantity}
+                  onChange={(e) => setEditedAsset({ ...editedAsset, minimum_tradable_quantity: e.target.value })}
+                  variant="standard"
+                  size="small"
+                  sx={{ mr: 1, width: 150 }}
+                />
               </>
             ) : (
               <ListItemText primary={`${asset.symbol} - ${asset.name}`} secondary={asset.asset_type} />
