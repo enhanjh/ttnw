@@ -4,7 +4,7 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import EditIcon from '@mui/icons-material/Edit';
 import SaveIcon from '@mui/icons-material/Save';
 import CancelIcon from '@mui/icons-material/Cancel';
-import Assets from './Assets'; // Import Assets component
+
 import { fetchApi } from '../api';
 
 function Portfolios() {
@@ -12,7 +12,7 @@ function Portfolios() {
   const [newPortfolioName, setNewPortfolioName] = useState('');
   const [editingPortfolioId, setEditingPortfolioId] = useState(null);
   const [editedPortfolioName, setEditedPortfolioName] = useState('');
-  const [selectedPortfolioId, setSelectedPortfolioId] = useState(null); // New state for selected portfolio
+
 
   useEffect(() => {
     fetchPortfolios();
@@ -60,9 +60,7 @@ function Portfolios() {
         });
         fetchPortfolios(); // Refresh the list
         alert("Portfolio deleted successfully!");
-        if (selectedPortfolioId === id) {
-          setSelectedPortfolioId(null); // Deselect if the deleted portfolio was selected
-        }
+
       } catch (error) {
         console.error("Error deleting portfolio:", error);
         alert(`Error deleting portfolio: ${error.message}`);
@@ -99,85 +97,71 @@ function Portfolios() {
     setEditedPortfolioName('');
   };
 
-  const handlePortfolioClick = (portfolioId) => {
-    setSelectedPortfolioId(portfolioId);
-  };
+
 
   return (
     <Box>
       <Typography variant="h5" gutterBottom>Manage Portfolios</Typography>
 
-      {!selectedPortfolioId ? (
-        <Box>
-          <Typography variant="h6">Create New Portfolio</Typography>
-          <form onSubmit={handleSubmit} style={{ display: 'flex', gap: '10px', marginBottom: '20px' }}>
-            <TextField
-              label="Portfolio Name"
-              variant="outlined"
-              value={newPortfolioName}
-              onChange={handleInputChange}
-              required
-              fullWidth
-            />
-            <Button type="submit" variant="contained" color="primary">
-              Create Portfolio
-            </Button>
-          </form>
-
-          <Typography variant="h6">Existing Portfolios</Typography>
-          <List component={Paper} sx={{ width: '100%', bgcolor: 'background.paper' }}>
-            {portfolios.map((portfolio) => (
-              <ListItem
-                key={portfolio.id.toString()}
-                secondaryAction={
-                  <>
-                    <Button variant="outlined" onClick={() => handlePortfolioClick(portfolio.id)} sx={{ mr: 1 }}>
-                      Manage Assets
-                    </Button>
-                    {editingPortfolioId === portfolio.id ? (
-                      <>
-                        <IconButton edge="end" aria-label="save" onClick={() => handleSave(portfolio.id)}>
-                          <SaveIcon />
-                        </IconButton>
-                        <IconButton edge="end" aria-label="cancel" onClick={handleCancelEdit}>
-                          <CancelIcon />
-                        </IconButton>
-                      </>
-                    ) : (
-                      <>
-                        <IconButton edge="end" aria-label="edit" onClick={() => handleEdit(portfolio)}>
-                          <EditIcon />
-                        </IconButton>
-                        <IconButton edge="end" aria-label="delete" onClick={() => handleDelete(portfolio.id)}>
-                          <DeleteIcon />
-                        </IconButton>
-                      </>
-                    )}
-                  </>
-                }
-              >
-                {editingPortfolioId === portfolio.id ? (
-                  <TextField
-                    value={editedPortfolioName}
-                    onChange={(e) => setEditedPortfolioName(e.target.value)}
-                    variant="standard"
-                    fullWidth
-                  />
-                ) : (
-                  <ListItemText primary={portfolio.name} secondary={`Created: ${new Date(portfolio.created_at).toLocaleDateString()}`} />
-                )}
-              </ListItem>
-            ))}
-          </List>
-        </Box>
-      ) : (
-        <Box>
-          <Button variant="outlined" onClick={() => setSelectedPortfolioId(null)} sx={{ mb: 2 }}>
-            Back to Portfolios
+      <Box>
+        <Typography variant="h6">Create New Portfolio</Typography>
+        <form onSubmit={handleSubmit} style={{ display: 'flex', gap: '10px', marginBottom: '20px' }}>
+          <TextField
+            label="Portfolio Name"
+            variant="outlined"
+            value={newPortfolioName}
+            onChange={handleInputChange}
+            required
+            fullWidth
+          />
+          <Button type="submit" variant="contained" color="primary">
+            Create Portfolio
           </Button>
-          <Assets portfolioId={selectedPortfolioId} />
-        </Box>
-      )}
+        </form>
+
+        <Typography variant="h6">Existing Portfolios</Typography>
+        <List component={Paper} sx={{ width: '100%', bgcolor: 'background.paper' }}>
+          {portfolios.map((portfolio) => (
+            <ListItem
+              key={portfolio.id.toString()}
+              secondaryAction={
+                <>
+                  {editingPortfolioId === portfolio.id ? (
+                    <>
+                      <IconButton edge="end" aria-label="save" onClick={() => handleSave(portfolio.id)}>
+                        <SaveIcon />
+                      </IconButton>
+                      <IconButton edge="end" aria-label="cancel" onClick={handleCancelEdit}>
+                        <CancelIcon />
+                      </IconButton>
+                    </>
+                  ) : (
+                    <>
+                      <IconButton edge="end" aria-label="edit" onClick={() => handleEdit(portfolio)}>
+                        <EditIcon />
+                      </IconButton>
+                      <IconButton edge="end" aria-label="delete" onClick={() => handleDelete(portfolio.id)}>
+                        <DeleteIcon />
+                      </IconButton>
+                    </>
+                  )}
+                </>
+              }
+            >
+              {editingPortfolioId === portfolio.id ? (
+                <TextField
+                  value={editedPortfolioName}
+                  onChange={(e) => setEditedPortfolioName(e.target.value)}
+                  variant="standard"
+                  fullWidth
+                />
+              ) : (
+                <ListItemText primary={portfolio.name} secondary={`Created: ${new Date(portfolio.created_at).toLocaleDateString()}`} />
+              )}
+            </ListItem>
+          ))}
+        </List>
+      </Box>
     </Box>
   );
 }

@@ -1,5 +1,5 @@
 import os
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, status
 from typing import List, Optional
 from beanie import PydanticObjectId
 from .. import models, schemas
@@ -12,7 +12,7 @@ router = APIRouter(
 
 # --- Backtest Result Endpoints ---
 
-@router.post("/api/backtest_results/", response_model=schemas.BacktestResult)
+@router.post("/api/backtest_results/", status_code=status.HTTP_201_CREATED)
 async def create_backtest_result(result: schemas.BacktestResultCreate):
     db_strategy = await models.Strategy.get(result.strategy_id)
     if not db_strategy:
@@ -74,19 +74,12 @@ async def run_strategy_backtest(request: schemas.StrategyBacktestRequest, save_r
     if not strategy:
         raise HTTPException(status_code=404, detail="Strategy not found")
 
-    portfolio = await models.Portfolio.get(request.portfolio_id)
-    if not portfolio:
-        raise HTTPException(status_code=404, detail="Portfolio not found")
-
     engine = BacktestingEngine(initial_capital=request.initial_capital)
-    fred_api_key = os.getenv("FRED_API_KEY")
     results = await engine.run_backtest(
         strategy_details=strategy,
-        portfolio_id=request.portfolio_id, # Pass portfolio_id
         start_date=request.start_date,
         end_date=request.end_date,
-        debug=request.debug,
-        fred_api_key=fred_api_key
+        debug=request.debug
     )
 
     if "error" in results:
@@ -135,3 +128,19 @@ async def run_strategy_backtest(request: schemas.StrategyBacktestRequest, save_r
         results["message"] = "Backtest results saved successfully!"
 
     return results
+
+@router.get("/api/backtest/benchmarks")
+async def get_benchmarks(
+    start_date: str,
+    end_date: str,
+    initial_capital: float,
+    debug: bool = False
+):
+    engine = BacktestingEngine(initial_capital=initial_capital)
+    benchmark_data = engine._fetch_and_calculate_benchmarks(
+        start_date=start_date,
+        end_date=end_date,
+        initial_capital=initial_capital,
+        debug_logs=[] if debug else None
+    )
+    return {"benchmark_data": benchmark_data}

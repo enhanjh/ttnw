@@ -3,6 +3,8 @@ from pydantic import BaseModel, Field
 from datetime import datetime
 from typing import List, Optional, Dict
 
+from . import schemas
+
 class Portfolio(Document):
     name: str = Field(..., max_length=50)
     created_at: datetime = Field(default_factory=datetime.now)
@@ -14,7 +16,6 @@ class Asset(Document):
     symbol: str = Field(..., max_length=50)
     name: str = Field(..., max_length=100)
     asset_type: str = Field(..., max_length=50)
-    portfolio_id: PydanticObjectId
     minimum_tradable_quantity: Optional[float] = Field(1.0, description="Minimum tradable quantity for this asset")
 
     class Settings:
@@ -62,7 +63,7 @@ class Strategy(Document):
     name: str = Field(..., max_length=100)
     description: Optional[str] = None
     strategy_type: str = Field(..., max_length=50)
-    parameters: Optional[dict] = None
+    parameters: Optional[schemas.StrategyParameters] = None
     created_at: datetime = Field(default_factory=datetime.now)
 
     class Settings:

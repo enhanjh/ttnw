@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Line } from 'react-chartjs-2';
 import {
   Chart as ChartJS,
@@ -25,20 +25,27 @@ ChartJS.register(
 
 function Backtest() {
   const [strategies, setStrategies] = useState([]);
-  const [portfolios, setPortfolios] = useState([]); // New state for portfolios
   const [selectedStrategyId, setSelectedStrategyId] = useState('');
-  const [selectedPortfolioId, setSelectedPortfolioId] = useState('');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
-  const [initialCapital, setInitialCapital] = useState(100000);
+  const [initialCapital, setInitialCapital] = useState('100,000,000'); // Changed to string for formatting
   const [backtestResults, setBacktestResults] = useState(null);
+
+  const handleCapitalChange = (e) => {
+    const rawValue = e.target.value.replace(/,/g, '');
+    if (rawValue === '') {
+      setInitialCapital('');
+    } else if (!isNaN(rawValue) && !rawValue.includes('.')) { // Only handle integers for simplicity
+      const numericValue = parseInt(rawValue, 10);
+      setInitialCapital(numericValue.toLocaleString());
+    }
+  };
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [debug, setDebug] = useState(false);
 
   const [savedBacktests, setSavedBacktests] = useState([]); // New state for saved backtests
   const [showSaveDialog, setShowSaveDialog] = useState(false); // New state for save dialog
-  const [newResultName, setNewResultName] = useState(''); // New state for new result name
 
   // Fetch strategies on component mount
   useEffect(() => {
@@ -54,19 +61,7 @@ function Backtest() {
     fetchStrategies();
   }, []);
 
-  // New useEffect to fetch portfolios
-  useEffect(() => {
-    const fetchPortfolios = async () => {
-      try {
-        const data = await fetchApi('/api/portfolios/');
-        setPortfolios(data);
-      } catch (err) {
-        console.error("Error fetching portfolios:", err);
-        setError("Failed to load portfolios.");
-      }
-    };
-    fetchPortfolios();
-  }, []);
+
 
   // New useEffect to fetch saved backtests
   useEffect(() => {
@@ -95,17 +90,16 @@ function Backtest() {
     }
 
     try {
-      const data = await fetchApi('/api/backtest/strategy', { // Call the new strategy backtest endpoint
+      const data = await fetchApi('/api/backtest/strategy', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
           strategy_id: selectedStrategyId,
-          portfolio_id: selectedPortfolioId,
           start_date: startDate,
           end_date: endDate,
-          initial_capital: parseFloat(initialCapital),
+          initial_capital: parseFloat(initialCapital.replace(/,/g, '')),
           debug: debug,
         }),
       });
@@ -119,8 +113,8 @@ function Backtest() {
     }
   };
 
-  const handleSaveBacktestResult = async () => {
-    if (!newResultName.trim()) {
+  const handleSaveBacktestResult = async (resultNameFromDialog) => {
+    if (!resultNameFromDialog.trim()) {
       setError("Result name cannot be empty.");
       return;
     }
@@ -134,11 +128,11 @@ function Backtest() {
 
     try {
       const dataToSave = {
-        name: newResultName,
+        name: resultNameFromDialog,
         strategy_id: selectedStrategyId, // Assuming selectedStrategyId is the ID of the strategy used
         start_date: startDate,
         end_date: endDate,
-        initial_capital: initialCapital,
+        initial_capital: parseFloat(initialCapital.replace(/,/g, '')),
         final_capital: backtestResults.final_capital,
         annualized_return: backtestResults.annualized_return,
         volatility: backtestResults.volatility,
@@ -157,7 +151,6 @@ function Backtest() {
       });
 
       setShowSaveDialog(false);
-      setNewResultName('');
       // Refresh saved backtests list
       const updatedSavedBacktests = await fetchApi('/api/backtest_results/');
       setSavedBacktests(updatedSavedBacktests);
@@ -170,18 +163,26 @@ function Backtest() {
     }
   };
 
-  const handleLoadBacktestResult = async (resultId) => {
+  const handleLoadBacktestResult = useCallback(async (resultId) => {
     setLoading(true);
     setError(null);
     try {
       const data = await fetchApi(`/api/backtest_results/${resultId}`);
-      // Set the backtest results to the loaded data
-      setBacktestResults(data);
+
+      // Fetch benchmark data for the loaded result's period
+      const benchmarkResponse = await fetchApi(
+        `/api/backtest/benchmarks?start_date=${new Date(data.start_date).toISOString().split('T')[0]}&end_date=${new Date(data.end_date).toISOString().split('T')[0]}&initial_capital=${data.initial_capital}`
+      );
+
+      // Merge benchmark data into the loaded backtest data
+      const mergedData = { ...data, benchmark_data: benchmarkResponse.benchmark_data };
+
+      setBacktestResults(mergedData);
       // Also set the selected strategy and dates from the loaded result for context
       setSelectedStrategyId(data.strategy.id);
       setStartDate(new Date(data.start_date).toISOString().split('T')[0]);
       setEndDate(new Date(data.end_date).toISOString().split('T')[0]);
-      setInitialCapital(data.initial_capital);
+      setInitialCapital(data.initial_capital.toLocaleString());
       alert(`Backtest result "${data.name}" loaded successfully!`);
     } catch (err) {
       setError(err.message);
@@ -189,9 +190,9 @@ function Backtest() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  const handleDeleteBacktestResult = async (resultId) => {
+  const handleDeleteBacktestResult = useCallback(async (resultId) => {
     if (!window.confirm("Are you sure you want to delete this saved backtest result?")) {
       return;
     }
@@ -211,10 +212,17 @@ function Backtest() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   // Chart data and options remain largely the same, assuming backend returns similar structure
-  const chartData = {
+  const benchmarkColors = {
+    "S&P 500": 'rgb(255, 159, 64)',
+    "KOSPI": 'rgb(0, 128, 0)', // Green color for KOSPI
+    "Nikkei 225": 'rgb(255, 0, 0)', // Red color for Nikkei 225
+    // Add more benchmarks and colors here
+  };
+
+  const chartData = useMemo(() => ({
     labels: backtestResults?.portfolio_value?.map(data => new Date(data.Date).toLocaleDateString()),
     datasets: [
       {
@@ -233,10 +241,20 @@ function Backtest() {
         tension: 0.1,
         yAxisID: 'y1', // Assign to secondary Y-axis
       },
+      ...(backtestResults?.benchmark_data ? Object.entries(backtestResults.benchmark_data).map(([name, data]) => ({
+        label: `${name} Benchmark`,
+        data: data.map(item => item.Value),
+        borderColor: benchmarkColors[name] || 'rgb(153, 102, 255)', // Fallback color
+        backgroundColor: benchmarkColors[name] ? benchmarkColors[name].replace('rgb', 'rgba').replace(')', ', 0.5)') : 'rgba(153, 102, 255, 0.5)',
+        tension: 0.1,
+        yAxisID: 'y', // Benchmarks also use the primary Y-axis for value
+        borderDash: [5, 5], // Dotted line for benchmarks
+        pointRadius: 0, // Remove point markers for benchmarks
+      })) : []),
     ],
-  };
+  }), [backtestResults]);
 
-  const chartOptions = {
+  const chartOptions = useMemo(() => ({
     responsive: true,
     plugins: {
       legend: {
@@ -280,10 +298,37 @@ function Backtest() {
         }
       },
     },
-  };
+  }), []);
 
+  const savedBacktestsItems = useMemo(() => savedBacktests.map((result) => (
+      <ListItem
+        key={result.id}
+        secondaryAction={
+          <>
+            <Button size="small" onClick={() => handleLoadBacktestResult(result.id)} sx={{ mr: 1 }}>Load</Button>
+            <Button size="small" color="error" onClick={() => handleDeleteBacktestResult(result.id)}>Delete</Button>
+          </>
+        }
+      >
+        <ListItemText
+          primary={result.name}
+          secondary={`Strategy: ${result.strategy.name} | ${new Date(result.start_date).toLocaleDateString()} - ${new Date(result.end_date).toLocaleDateString()}`}
+        />
+      </ListItem>
+  )), [savedBacktests, handleLoadBacktestResult, handleDeleteBacktestResult]);
 
-
+  const transactionsTableRows = useMemo(() => backtestResults?.transactions.map((tx, index) => (
+    <TableRow key={index}>
+      <TableCell>{new Date(tx.transaction_date).toLocaleDateString()}</TableCell>
+      <TableCell>{tx.asset.name}</TableCell>
+      <TableCell>{tx.transaction_type}</TableCell>
+      <TableCell align="right">{tx.quantity?.toFixed(2)}</TableCell>
+      <TableCell align="right">₩{tx.price?.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}</TableCell>
+      <TableCell align="right">₩{(tx.quantity * tx.price)?.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</TableCell>
+      <TableCell align="right">₩{tx.cash_balance?.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</TableCell>
+      <TableCell align="right">₩{tx.portfolio_value?.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</TableCell>
+    </TableRow>
+  )), [backtestResults]);
 
 
   return (
@@ -292,25 +337,7 @@ function Backtest() {
 
       <form onSubmit={handleBacktest}>
         <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, alignItems: 'center', mb: 2 }}> {/* New Box for horizontal layout */}
-          <FormControl sx={{ flex: '1 1 300px' }}> {/* Adjust flex basis as needed */}
-            <InputLabel id="portfolio-select-label">Select Portfolio</InputLabel>
-            <Select
-              labelId="portfolio-select-label"
-              value={selectedPortfolioId}
-              label="Select Portfolio"
-              onChange={(e) => setSelectedPortfolioId(e.target.value)}
-              required
-            >
-              <MenuItem value="">
-                <em>None</em>
-              </MenuItem>
-              {portfolios.map((portfolio) => (
-                <MenuItem key={portfolio.id} value={portfolio.id}>
-                  {portfolio.name}
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
+
 
           <FormControl sx={{ flex: '1 1 300px' }}> {/* Adjust flex basis as needed */}
             <InputLabel id="strategy-select-label">Select Strategy</InputLabel>
@@ -352,10 +379,10 @@ function Backtest() {
           />
           <TextField
             label="Initial Capital"
-            type="number"
+            type="text" // Changed to text for formatting
             sx={{ flex: '1 1 150px' }} // Adjust flex basis as needed
             value={initialCapital}
-            onChange={(e) => setInitialCapital(e.target.value)}
+            onChange={handleCapitalChange} // Use custom handler
             required
           />
         <FormControlLabel
@@ -365,7 +392,7 @@ function Backtest() {
         <Button
           type="submit"
           variant="contained"
-          disabled={loading || !selectedPortfolioId || !selectedStrategyId || !startDate || !endDate}
+          disabled={loading || !selectedStrategyId || !startDate || !endDate}
           sx={{ height: '56px' }} // Match text field height
         >
           {loading ? <CircularProgress size={24} /> : 'Run Strategy Backtest'}
@@ -381,22 +408,7 @@ function Backtest() {
           <Typography>No saved backtest results yet.</Typography>
         ) : (
           <List component={Paper}>
-            {savedBacktests.map((result) => (
-              <ListItem
-                key={result.id}
-                secondaryAction={
-                  <>
-                    <Button size="small" onClick={() => handleLoadBacktestResult(result.id)} sx={{ mr: 1 }}>Load</Button>
-                    <Button size="small" color="error" onClick={() => handleDeleteBacktestResult(result.id)}>Delete</Button>
-                  </>
-                }
-              >
-                <ListItemText
-                  primary={result.name}
-                  secondary={`Strategy: ${result.strategy.name} | ${new Date(result.start_date).toLocaleDateString()} - ${new Date(result.end_date).toLocaleDateString()}`}
-                />
-              </ListItem>
-            ))}
+            {savedBacktestsItems}
           </List>
         )}
       </Box>
@@ -419,8 +431,6 @@ function Backtest() {
             open={showSaveDialog}
             onClose={() => setShowSaveDialog(false)}
             onSave={handleSaveBacktestResult}
-            resultName={newResultName}
-            onResultNameChange={setNewResultName}
           />
           <TableContainer component={Paper} sx={{ mt: 2, mb: 3 }}>
             <Table size="small">
@@ -484,18 +494,7 @@ function Backtest() {
                 </TableRow>
               </TableHead>
               <TableBody>
-                {backtestResults.transactions.map((tx, index) => (
-                  <TableRow key={index}>
-                    <TableCell>{new Date(tx.transaction_date).toLocaleDateString()}</TableCell>
-                    <TableCell>{tx.asset.symbol}</TableCell>
-                    <TableCell>{tx.transaction_type}</TableCell>
-                    <TableCell align="right">{tx.quantity?.toFixed(2)}</TableCell>
-                    <TableCell align="right">₩{tx.price?.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}</TableCell>
-                    <TableCell align="right">₩{(tx.quantity * tx.price)?.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</TableCell>
-                    <TableCell align="right">₩{tx.cash_balance?.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</TableCell>
-                    <TableCell align="right">₩{tx.portfolio_value?.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</TableCell>
-                  </TableRow>
-                ))}
+                {transactionsTableRows}
               </TableBody>
             </Table>
           </TableContainer>
@@ -517,9 +516,19 @@ function Backtest() {
   );
 }
 
-export default Backtest;
+function SaveBacktestResultDialog({ open, onClose, onSave }) {
+  const [dialogResultName, setDialogResultName] = useState('');
 
-function SaveBacktestResultDialog({ open, onClose, onSave, resultName, onResultNameChange }) {
+  useEffect(() => {
+    if (open) {
+      setDialogResultName(''); // Clear previous name when opening
+    }
+  }, [open]);
+
+  const handleInternalSave = () => {
+    onSave(dialogResultName); // Pass internal state to parent's onSave
+  };
+
   return (
     <MuiDialog open={open} onClose={onClose}>
       <MuiDialogTitle>Save Backtest Results</MuiDialogTitle>
@@ -531,14 +540,16 @@ function SaveBacktestResultDialog({ open, onClose, onSave, resultName, onResultN
           type="text"
           fullWidth
           variant="standard"
-          value={resultName}
-          onChange={(e) => onResultNameChange(e.target.value)}
+          value={dialogResultName}
+          onChange={(e) => setDialogResultName(e.target.value)}
         />
       </MuiDialogContent>
       <MuiDialogActions>
         <Button onClick={onClose}>Cancel</Button>
-        <Button onClick={onSave} disabled={!resultName.trim()}>Save</Button>
+        <Button onClick={handleInternalSave} disabled={!dialogResultName.trim()}>Save</Button>
       </MuiDialogActions>
     </MuiDialog>
   );
 }
+
+export default Backtest;

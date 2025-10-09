@@ -94,12 +94,19 @@ def calculate_max_drawdown(cumulative_returns: pd.Series) -> float:
 async def get_portfolio_returns(
     portfolio_id: PydanticObjectId, start_date: str, end_date: str
 ) -> Dict:
-    assets = await models.Asset.find(models.Asset.portfolio_id == portfolio_id).to_list()
     transactions = await models.Transaction.find(models.Transaction.portfolio_id == portfolio_id).to_list()
 
-    if not assets or not transactions:
-        return {"error": "No assets or transactions found for this portfolio."}
+    if not transactions:
+        return {"error": "No transactions found for this portfolio."}
 
+    # Extract unique asset_ids from transactions
+    unique_asset_ids = list(set(t.asset_id for t in transactions))
+    
+    # Fetch assets based on these unique asset_ids
+    assets = await models.Asset.find({"_id": {"$in": unique_asset_ids}}).to_list()
+
+    if not assets:
+        return {"error": "No assets found for transactions in this portfolio."}
     # Create a map of asset_id to asset for easy lookup
     asset_map = {asset.id: asset for asset in assets}
 

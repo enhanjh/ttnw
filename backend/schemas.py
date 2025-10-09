@@ -12,7 +12,6 @@ class AssetBase(BaseModel):
     symbol: str
     name: str
     asset_type: Literal["stock_us", "stock_kr_kospi", "stock_kr_kosdaq", "cash"] # Example allowed types
-    portfolio_id: PydanticObjectId # Changed back to PydanticObjectId
     minimum_tradable_quantity: Optional[float] = 1.0
 
 class AssetCreate(AssetBase):
@@ -66,9 +65,22 @@ class Portfolio(PortfolioBase):
     )
 
 
+class AssetWeightInStrategy(BaseModel):
+    asset: str = Field(..., description="Asset symbol or ticker")
+    asset_type: str = Field(..., description="Type of the asset (e.g., stock_us, stock_kr_kospi)")
+    weight: Optional[float] = Field(None, description="Weight of the asset in the strategy. Optional for some strategies like momentum.")
+
+
+class FundamentalCondition(BaseModel):
+    value_metric: str = Field(..., description="Metric to use for the asset's intrinsic value (e.g., 'Net Current Asset Value', 'Book Value Per Share', 'EPS')")
+    comparison_metric: str = Field(..., description="Metric to compare against the value metric (e.g., 'Market Cap', 'Price Per Share', 'Revenue')")
+    comparison_operator: str = Field(..., description="Operator for comparison (e.g., '>', '<', '>=', '<=', '=')")
+    comparison_multiplier: Optional[float] = Field(None, description="Multiplier for the comparison metric")
+
+
 class StrategyParameters(BaseModel):
 
-    asset_weights: Optional[Dict[str, float]] = Field(None, description="Dictionary of asset symbols to their target weights (e.g., {'AAPL': 0.5, 'MSFT': 0.5})")
+    asset_weights: Optional[List[AssetWeightInStrategy]] = Field(None, description="List of assets with their weights and types")
 
     rebalancing_frequency: str = Field(..., description="Frequency of rebalancing (e.g., 'monthly', 'quarterly', 'annual', 'never')")
     rebalancing_threshold: Optional[float] = Field(None, description="Percentage deviation from target weight to trigger rebalancing (e.g., 0.05 for 5%)")
@@ -83,6 +95,11 @@ class StrategyParameters(BaseModel):
     moving_average_period_short: Optional[int] = None
     moving_average_period_long: Optional[int] = None
 
+    # New fields for Fundamental Value (Indicator-Based) strategy
+    fundamental_conditions: Optional[List[FundamentalCondition]] = Field(None, description="List of fundamental conditions to evaluate")
+    re_evaluation_frequency: Optional[str] = Field(None, description="Frequency to re-evaluate fundamental criteria (e.g., 'annual', 'quarterly')")
+    fundamental_data_region: Optional[str] = Field(None, description="Region for fundamental data (e.g., 'KR', 'US')")
+
 class StrategyCreate(BaseModel):
     name: str = Field(..., max_length=100)
     description: Optional[str] = None
@@ -91,10 +108,9 @@ class StrategyCreate(BaseModel):
 
 class StrategyBacktestRequest(BaseModel):
     strategy_id: PydanticObjectId
-    portfolio_id: PydanticObjectId
     start_date: str
     end_date: str
-    initial_capital: float = 100000.0
+    initial_capital: float = 100000000.0
     debug: bool = False
 
 class Strategy(StrategyCreate):
@@ -106,6 +122,7 @@ class Strategy(StrategyCreate):
         arbitrary_types_allowed=True,
         json_encoders={ObjectId: str}
     )
+
 
 class BacktestResultBase(BaseModel):
     name: str

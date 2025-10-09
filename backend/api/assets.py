@@ -1,8 +1,7 @@
 from fastapi import APIRouter, HTTPException
-from typing import List, Optional
+from typing import List
 from beanie import PydanticObjectId
 from .. import models, schemas
-import re
 
 router = APIRouter(
     prefix="/api/assets",
@@ -11,26 +10,10 @@ router = APIRouter(
 
 @router.post("/", response_model=schemas.Asset)
 async def create_asset(asset: schemas.AssetCreate):
-    db_portfolio = await models.Portfolio.get(asset.portfolio_id)
-    if not db_portfolio:
-        raise HTTPException(status_code=404, detail="Portfolio not found")
-
-    # For cash assets, check case-insensitively
-    if asset.asset_type.lower() == 'cash':
-        cash_symbol_pattern = re.compile(asset.symbol, re.IGNORECASE)
-        db_asset = await models.Asset.find_one(
-            models.Asset.asset_type == 'cash',
-            models.Asset.symbol == cash_symbol_pattern,
-            models.Asset.portfolio_id == asset.portfolio_id
-        )
-    else:
-        db_asset = await models.Asset.find_one(
-            models.Asset.symbol == asset.symbol,
-            models.Asset.portfolio_id == asset.portfolio_id
-        )
-    
+    # Check for duplicates globally
+    db_asset = await models.Asset.find_one(models.Asset.symbol == asset.symbol)
     if db_asset:
-        raise HTTPException(status_code=400, detail="Asset with this symbol already exists in this portfolio")
+        raise HTTPException(status_code=400, detail="Asset with this symbol already exists")
 
     if asset.symbol.lower() == "cash_krw":
         asset.name = "Korean Won Cash"
@@ -45,13 +28,8 @@ async def create_asset(asset: schemas.AssetCreate):
     return db_asset
 
 @router.get("/", response_model=List[schemas.Asset])
-async def read_assets(portfolio_id: Optional[PydanticObjectId] = None, skip: int = 0, limit: int = 100):
-    if portfolio_id:
-        assets_from_db = await models.Asset.find(
-            models.Asset.portfolio_id == portfolio_id
-        ).skip(skip).limit(limit).to_list()
-    else:
-        assets_from_db = await models.Asset.find_all().skip(skip).limit(limit).to_list()
+async def read_assets(skip: int = 0, limit: int = 100):
+    assets_from_db = await models.Asset.find_all().skip(skip).limit(limit).to_list()
     return assets_from_db
 
 @router.get("/{asset_id}", response_model=schemas.Asset)
@@ -67,17 +45,11 @@ async def update_asset(asset_id: PydanticObjectId, asset: schemas.AssetCreate):
     if db_asset is None:
         raise HTTPException(status_code=404, detail="Asset not found")
     
-    db_portfolio = await models.Portfolio.get(asset.portfolio_id)
-    if not db_portfolio:
-        raise HTTPException(status_code=404, detail="Portfolio not found")
-    
-    existing_asset_with_symbol = await models.Asset.find_one(
-        models.Asset.symbol == asset.symbol,
-        models.Asset.portfolio_id == asset.portfolio_id,
-        models.Asset.id != asset_id
-    )
-    if existing_asset_with_symbol:
-        raise HTTPException(status_code=400, detail="Asset with this symbol already exists in this portfolio")
+    # Check if the new symbol is already taken by another asset
+    if asset.symbol != db_asset.symbol:
+        existing_asset_with_symbol = await models.Asset.find_one(models.Asset.symbol == asset.symbol)
+        if existing_asset_with_symbol:
+            raise HTTPException(status_code=400, detail="Asset with this symbol already exists")
 
     update_data = asset.dict(exclude_unset=True)
     for key, value in update_data.items():

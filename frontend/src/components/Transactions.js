@@ -44,24 +44,10 @@ const EditableTransactionRow = memo(function EditableTransactionRow({
   }, [data.asset_id, getAssetName]);
 
   const filteredAssets = useMemo(() => {
-    if (!data.portfolio_id) {
-      // If no portfolio is selected, show no assets (or only global assets if any)
-      // For now, let's return an empty array if no portfolio is selected.
-      return [];
-    }
-
-    // Filter cash assets by the selected portfolio_id
-    const cashAssets = assets.filter(asset => 
-      asset.asset_type && asset.asset_type.toLowerCase() === 'cash' && asset.portfolio_id === data.portfolio_id
-    );
-
-    // Filter non-cash assets by the selected portfolio_id
-    const portfolioAssets = assets.filter(asset => 
-      asset.portfolio_id === data.portfolio_id && !(asset.asset_type && asset.asset_type.toLowerCase() === 'cash')
-    );
-
-    return [...cashAssets, ...portfolioAssets];
-  }, [data.portfolio_id, assets]);
+    // Now that assets are global, we show all assets for selection.
+    // The transaction itself will link to a portfolio.
+    return assets;
+  }, [assets]);
 
 
   if (isEditing || isAdding) {

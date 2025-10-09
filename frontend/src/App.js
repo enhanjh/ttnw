@@ -4,13 +4,14 @@ import Transactions from './components/Transactions';
 import Backtest from './components/Backtest';
 import Portfolios from './components/Portfolios';
 import PortfolioReturns from './components/PortfolioReturns';
+import Assets from './components/Assets';
 import LoginPopup from './components/LoginPopup';
 import StrategyManager from './components/StrategyManager';
 import './App.css';
 
 function App() {
   const [selectedTab, setSelectedTab] = useState(0); // 0 for Portfolio Management, 1 for Backtesting & Strategies
-  const [selectedPortfolioSubTab, setSelectedPortfolioSubTab] = useState(0); // 0: Portfolios, 1: Transactions, 2: Portfolio Returns
+  const [selectedPortfolioSubTab, setSelectedPortfolioSubTab] = useState(0); // 0: Portfolios, 1: Transactions, 2: Portfolio Returns, 3: Assets
   const [selectedBacktestSubTab, setSelectedBacktestSubTab] = useState(0); // 0: Backtest, 1: Strategies
 
   const [isLoginOpen, setIsLoginOpen] = useState(false);
@@ -98,10 +99,12 @@ function App() {
                 <Tab label="Portfolios" />
                 <Tab label="Transactions" />
                 <Tab label="Portfolio Returns" />
+                <Tab label="Assets" />
               </Tabs>
               {selectedPortfolioSubTab === 0 && <Portfolios />}
               {selectedPortfolioSubTab === 1 && <Transactions />}
               {selectedPortfolioSubTab === 2 && <PortfolioReturns />}
+              {selectedPortfolioSubTab === 3 && <Assets />}
             </>
           )}
 

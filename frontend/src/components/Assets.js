@@ -6,13 +6,11 @@ import SaveIcon from '@mui/icons-material/Save';
 import CancelIcon from '@mui/icons-material/Cancel';
 import { fetchApi } from '../api';
 
-function Assets({ portfolioId }) {
+function Assets() {
   const [assets, setAssets] = useState([]);
   
-  const [portfolios, setPortfolios] = useState([]);
   const [selectedSymbol, setSelectedSymbol] = useState('');
   const [selectedName, setSelectedName] = useState('');
-  const [selectedPortfolio, setSelectedPortfolio] = useState('');
   const [selectedCountry, setSelectedCountry] = useState('US'); // Default to US
   const [newMinTradeQty, setNewMinTradeQty] = useState(1.0);
   const [editingAssetId, setEditingAssetId] = useState(null);
@@ -25,31 +23,19 @@ function Assets({ portfolioId }) {
   });
 
   const fetchAssets = useCallback(async () => {
-    if (!portfolioId) {
-      setAssets([]);
-      return;
-    }
     try {
-      const data = await fetchApi(`/api/assets/?portfolio_id=${portfolioId}`);
+      const data = await fetchApi(`/api/assets/`);
       setAssets(data);
     } catch (error) {
       console.error("Error fetching assets:", error);
     }
-  }, [portfolioId]);
-
-  const fetchPortfolios = useCallback(async () => {
-    try {
-      const data = await fetchApi('/api/portfolios/');
-      setPortfolios(data);
-    } catch (error) {
-      console.error("Error fetching portfolios:", error);
-    }
   }, []);
+
+
 
   useEffect(() => {
     fetchAssets();
-    fetchPortfolios();
-  }, [fetchAssets, fetchPortfolios]);
+  }, [fetchAssets]);
 
   const handleSymbolChange = (event) => {
     setSelectedSymbol(event.target.value);
@@ -65,7 +51,7 @@ function Assets({ portfolioId }) {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!selectedSymbol || selectedSymbol.trim() === '') {
-      alert('Please select a symbol and a portfolio.');
+      alert('Please select a symbol.');
       return;
     }
 
@@ -73,7 +59,6 @@ function Assets({ portfolioId }) {
       symbol: selectedSymbol,
       name: selectedName,
       asset_type: selectedCountry === 'US' ? 'stock_us' : (selectedCountry === 'KR' ? 'stock_kr_kospi' : 'stock_kr_kosdaq'),
-      portfolio_id: portfolioId,
       minimum_tradable_quantity: parseFloat(newMinTradeQty),
     };
 
@@ -116,7 +101,6 @@ function Assets({ portfolioId }) {
       symbol: asset.symbol,
       name: asset.name,
       asset_type: asset.asset_type,
-      portfolio_id: asset.portfolio_id,
       minimum_tradable_quantity: asset.minimum_tradable_quantity || 1.0,
     });
   };
@@ -135,7 +119,6 @@ function Assets({ portfolioId }) {
         symbol: '',
         name: '',
         asset_type: '',
-        portfolio_id: '',
       });
       fetchAssets(); // Refresh the list
       alert("Asset updated successfully!");
@@ -151,15 +134,11 @@ function Assets({ portfolioId }) {
       symbol: '',
       name: '',
       asset_type: '',
-      portfolio_id: '',
       minimum_tradable_quantity: 1.0,
     });
   };
 
-  const getPortfolioName = (portfolioId) => {
-    const portfolio = portfolios.find(p => p.id === portfolioId);
-    return portfolio ? portfolio.name : 'Unknown';
-  };
+
 
   
 
@@ -260,20 +239,7 @@ function Assets({ portfolioId }) {
                   size="small"
                   sx={{ mr: 1 }}
                 />
-                <FormControl variant="standard" size="small" sx={{ minWidth: 120 }}>
-                  <InputLabel>Portfolio</InputLabel>
-                  <Select
-                    value={editedAsset.portfolio_id}
-                    onChange={(e) => setEditedAsset({ ...editedAsset, portfolio_id: e.target.value })}
-                    label="Portfolio"
-                  >
-                    {portfolios.map((portfolio) => (
-                      <MenuItem key={portfolio.id.toString()} value={portfolio.id}>
-                        {portfolio.name}
-                      </MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
+
                 <TextField
                   label="Min. Trade Qty"
                   type="number"

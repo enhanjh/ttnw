@@ -55,10 +55,10 @@ async def update_strategy(strategy_id: PydanticObjectId, strategy: schemas.Strat
     await db_strategy.save()
     return schemas.Strategy.model_validate(db_strategy)
 
-@router.delete("/{strategy_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{strategy_id}")
 async def delete_strategy(strategy_id: PydanticObjectId):
     db_strategy = await models.Strategy.get(strategy_id)
     if db_strategy is None:
         raise HTTPException(status_code=404, detail="Strategy not found")
     await db_strategy.delete()
-    return None
+    return {"message": "Strategy deleted successfully"}
