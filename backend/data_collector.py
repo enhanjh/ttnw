@@ -2,7 +2,7 @@ from fredapi import Fred
 import yfinance as yf
 import pandas as pd
 from datetime import datetime, timedelta
-from typing import List, Dict
+from typing import List, Dict, Optional
 import ssl
 import requests
 from io import BytesIO
@@ -12,7 +12,7 @@ import os
 import tempfile
 import shutil
 import FinanceDataReader as fdr
-import OpenDartReader as odr
+import OpenDartReader
 
 from . import models
 
@@ -111,30 +111,34 @@ def get_fred_yield_curve(api_key: str, start_date: str, end_date: str) -> pd.Dat
         print(f"Error fetching or processing FRED data: {e}")
         return pd.DataFrame()
 
-def get_korean_fundamental_data(symbol: str, api_key: str, year: int, quarter: int) -> Dict:
+def get_korean_fundamental_data(symbol: str, api_key: str, year: int, quarter: int, re_evaluation_frequency: str) -> Dict:
     """
     Fetches Korean fundamental data (balance sheet, income statement) for a given symbol and period using OpenDartReader.
     Assumes symbol is the stock_code (e.g., '005930') which can be used directly as corp_code.
     """
-    odr.api_key = api_key
+    dart = OpenDartReader.OpenDartReader(api_key)
 
     # Use symbol directly as corp_code as per user's clarification
     corp_code = symbol # Assuming symbol is the stock_code
 
     # Fetch financial statements
-    report_codes = {
-        1: '11013', # Q1
-        2: '11012', # Q2 (Half-year)
-        3: '11014', # Q3
-        4: '11011'  # Annual (Q4)
-    }
-    reprt_code = report_codes.get(quarter)
+    if re_evaluation_frequency == 'annual':
+        reprt_code = '11011' # Annual report code
+    else:
+        report_codes = {
+            1: '11013', # Q1
+            2: '11012', # Q2 (Half-year)
+            3: '11014', # Q3
+            4: '11011'  # Annual (Q4)
+        }
+        reprt_code = report_codes.get(quarter)
+
     if not reprt_code:
-        print(f"Error: Invalid quarter {quarter} for OpenDartReader.")
+        print(f"Error: Invalid quarter {quarter} or re_evaluation_frequency {re_evaluation_frequency} for OpenDartReader.")
         return {}
 
     try:
-        finstate = odr.finstate(corp_code, year, reprt_code=reprt_code)
+        finstate = dart.finstate(corp=corp_code, bsns_year=year, reprt_code=reprt_code)
         if finstate is None or finstate.empty:
             print(f"Warning: No financial statements found for {symbol} ({corp_code}) in {year} Q{quarter}.")
             return {}
@@ -170,6 +174,33 @@ def get_us_fundamental_data(symbol: str, year: int, quarter: int) -> Dict:
         "eps": 100,
         "shares_outstanding": 1000000000,
     }
+
+def get_asset_universe(region: str, top_n: Optional[int] = None, ranking_metric: Optional[str] = None, ranking_order: Optional[str] = 'desc') -> pd.DataFrame:
+    """
+    Fetches the list of assets for a given market region.
+    For 'KR', it fetches all stocks listed on KRX (KOSPI, KOSDAQ, KONEX).
+    If top_n, ranking_metric, and ranking_order are provided, it pre-filters the universe to 5 * top_n assets.
+    """
+    if region == 'KR':
+        try:
+            krx = fdr.StockListing('KOSPI')
+            # Marcap is in KRW 100,000,000. Convert to absolute value.
+            krx['Marcap'] = krx['Marcap'] * 100000000
+
+            if top_n is not None and ranking_metric is not None and ranking_metric in krx.columns:
+                # Select 5 * top_n assets
+                krx = krx.head(top_n * 5)
+
+            return krx
+        except Exception as e:
+            print(f"Error fetching KRX stock listing: {e}")
+            return pd.DataFrame()
+    # Add other regions like 'US' here
+    # elif region == 'US':
+    #     ...
+    else:
+        print(f"Warning: Asset universe for region '{region}' is not supported.")
+        return pd.DataFrame()
 
 if __name__ == "__main__":
     aapl_data = get_stock_data("AAPL", "2023-01-01", "2023-12-31")

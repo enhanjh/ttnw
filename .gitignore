@@ -1,6 +1,7 @@
 *.pyc
 ttnw/*
 logs/*
+install/*
 KIS*
 # Ignore environment variables files
 **/.env

@@ -99,6 +99,9 @@ class StrategyParameters(BaseModel):
     fundamental_conditions: Optional[List[FundamentalCondition]] = Field(None, description="List of fundamental conditions to evaluate")
     re_evaluation_frequency: Optional[str] = Field(None, description="Frequency to re-evaluate fundamental criteria (e.g., 'annual', 'quarterly')")
     fundamental_data_region: Optional[str] = Field(None, description="Region for fundamental data (e.g., 'KR', 'US')")
+    top_n: Optional[int] = Field(None, description="Number of top assets to select after filtering by fundamental conditions")
+    ranking_metric: Optional[str] = Field(None, description="Metric to rank assets for Top N selection (e.g., 'market_cap')")
+    ranking_order: Optional[Literal['asc', 'desc']] = Field('desc', description="Order to rank assets (ascending or descending)")
 
 class StrategyCreate(BaseModel):
     name: str = Field(..., max_length=100)

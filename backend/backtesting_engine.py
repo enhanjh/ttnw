@@ -6,7 +6,7 @@ from typing import List, Dict, Callable, Optional
 from uuid import UUID
 
 from . import models
-from .data_collector import get_historical_data, get_fred_yield_curve, get_korean_fundamental_data
+from .data_collector import get_historical_data, get_fred_yield_curve, get_korean_fundamental_data, get_asset_universe
 from .portfolio_calculator import calculate_portfolio_value, calculate_returns, calculate_cumulative_returns, calculate_volatility, calculate_max_drawdown
 
 class BacktestingEngine:
@@ -14,6 +14,7 @@ class BacktestingEngine:
         self.initial_capital = initial_capital
         self.portfolio_history = []
         self.transactions = []
+        self.universe_df = None # To store asset universe for dynamic strategies
 
     def _fetch_and_calculate_benchmarks(self, start_date: str, end_date: str, initial_capital: float, debug_logs: Optional[List[str]] = None) -> Dict[str, List[Dict]]:
         benchmark_data = {}
@@ -72,6 +73,31 @@ class BacktestingEngine:
     async def run_backtest(self, strategy_details, start_date, end_date, debug: bool = False):
         debug_logs = []
         
+        params = strategy_details.parameters
+        asset_weights_dict = {}
+        symbols = []
+
+        if strategy_details.strategy_type == 'fundamental_indicator':
+            if params.fundamental_data_region:
+                self.universe_df = get_asset_universe(params.fundamental_data_region)
+                if not self.universe_df.empty:
+                    symbols = self.universe_df['Code'].tolist()
+                    if debug_logs is not None: debug_logs.append(f"Fundamental strategy: Loaded {len(symbols)} symbols from {params.fundamental_data_region} for universe.")
+            asset_weights_dict = {} 
+        else:
+            if hasattr(params, 'asset_weights') and params.asset_weights:
+                asset_list = params.asset_weights
+                if strategy_details.strategy_type == 'momentum':
+                    if not params.asset_pool:
+                        params.asset_pool = [item.asset for item in asset_list]
+                    asset_weights_dict = {item.asset: 0 for item in asset_list}
+                else:
+                    asset_weights_dict = {item.asset: item.weight for item in asset_list}
+            
+            symbols = list(asset_weights_dict.keys()) if strategy_details.strategy_type != "momentum" else (params.asset_pool or [])
+
+        if not symbols:
+            return {"error": "Strategy has no symbols to process. For Fundamental strategy, ensure a valid region is set."}
         fred_api_key = os.getenv("FRED_API_KEY")
         if strategy_details.strategy_type == "momentum" and not fred_api_key:
             return {"error": "FRED_API_KEY environment variable not set for Momentum strategy."}
@@ -93,13 +119,11 @@ class BacktestingEngine:
             if not opendart_api_key:
                 return {"error": "OPENDART_API_KEY environment variable not set for Fundamental Indicator strategy."}
 
-            fundamental_data_region = strategy_details.parameters.fundamental_data_region
+            fundamental_data_region = params.fundamental_data_region
             if not fundamental_data_region:
                 return {"error": "Fundamental data region not specified for Fundamental Indicator strategy."}
 
             # Determine unique year/quarter combinations within the backtest period
-            # This is a simplified approach; a more robust solution would handle monthly/daily data points
-            # and map them to the correct quarterly/annual reports.
             unique_periods = set()
             for d in pd.to_datetime(pd.date_range(start=start_date, end=end_date, freq='D')):
                 year = d.year
@@ -111,7 +135,7 @@ class BacktestingEngine:
                 for year, quarter in unique_periods:
                     if fundamental_data_region == "KR":
                         try:
-                            data = get_korean_fundamental_data(symbol, opendart_api_key, year, quarter)
+                            data = get_korean_fundamental_data(symbol, opendart_api_key, year, quarter, params.re_evaluation_frequency)
                             if data:
                                 fundamental_data_cache[symbol][(year, quarter)] = data
                             else:
@@ -132,47 +156,30 @@ class BacktestingEngine:
 
             if not fundamental_data_cache:
                 return {"error": "No fundamental data available for backtesting."}
-        # Normalize strategy parameters for backtesting if the new format is used
-        params = strategy_details.parameters
-        if 'asset_weights' in params and params['asset_weights'] and isinstance(params['asset_weights'][0], dict):
-            asset_list = params['asset_weights']
-            if strategy_details.strategy_type == 'momentum':
-                # For momentum, asset_pool is a list of tickers, and weights are not used.
-                params['asset_pool'] = [item['asset'] for item in asset_list]
-                # The engine still uses asset_weights to get all symbols, so create a dummy dict.
-                params['asset_weights'] = {item['asset']: 0 for item in asset_list}
-            else:
-                # For other strategies, convert list of dicts to the dict format the engine expects.
-                params['asset_weights'] = {item['asset']: item.get('weight', 0) for item in asset_list}
-
-        symbols = list(strategy_details.parameters['asset_weights'].keys()) if strategy_details.strategy_type != "momentum" else strategy_details.parameters.get('asset_pool', [])
-        if not symbols:
-            return {"error": "Strategy has no asset weights or asset pool defined."}
-
+        
         # Fetch asset metadata globally for all symbols in the strategy
         assets = await models.Asset.find({"symbol": {"$in": symbols}}).to_list()
         symbol_to_asset_map = {asset.symbol: asset for asset in assets}
-        if not symbols:
-            return {"error": "Strategy has no asset weights or asset pool defined."}
-
+        
         # Adjust data fetch start date to account for lookback periods in strategies like momentum.
         data_fetch_start_date = start_date
         if strategy_details.strategy_type == 'momentum':
-            lookback_months = strategy_details.parameters.get('lookback_period_months', 6)
+            lookback_months = params.lookback_period_months or 6
             if lookback_months:
                 earliest_date = pd.to_datetime(start_date) - pd.DateOffset(months=lookback_months)
                 data_fetch_start_date = earliest_date.strftime('%Y-%m-%d')
 
         historical_data = {}
+        symbols_with_data = []
         for symbol in symbols:
             data = get_historical_data(symbol, data_fetch_start_date, end_date)
             if not data.empty:
                 historical_data[symbol] = data
+                symbols_with_data.append(symbol)
             else:
-                # It might be okay for some symbols to have no data if the pool is large,
-                # but for now, we'll treat it as an error.
-                return {"error": f"No historical data found for symbol {symbol} in the given date range."}
-
+                if debug_logs is not None: debug_logs.append(f"Warning: No historical data found for symbol {symbol} in the given date range. Skipping this symbol.")
+        
+        symbols = symbols_with_data # Update symbols to only include those with data
         if not historical_data:
             return {"error": "No historical data available for backtesting."}
 
@@ -219,29 +226,29 @@ class BacktestingEngine:
             daily_transactions = []
 
             if strategy_details.strategy_type == "buy_and_hold":
-                buy_hold_transactions = self._execute_buy_and_hold(strategy_details, historical_data, current_holdings, current_cash, current_prices, date, symbol_to_asset_map)
+                buy_hold_transactions = self._execute_buy_and_hold(asset_weights_dict, historical_data, current_holdings, current_cash, current_prices, date, symbol_to_asset_map)
                 daily_transactions.extend(buy_hold_transactions)
             
             elif strategy_details.strategy_type == "asset_allocation":
                 rebalance_needed = False
-                if strategy_details.parameters['rebalancing_frequency'] == 'monthly':
+                if params.rebalancing_frequency == 'monthly':
                     if last_rebalance_date is None or date.month != last_rebalance_date.month:
                         rebalance_needed = True
-                elif strategy_details.parameters['rebalancing_frequency'] == 'quarterly':
+                elif params.rebalancing_frequency == 'quarterly':
                     if last_rebalance_date is None or (date.month - 1) // 3 != (last_rebalance_date.month - 1) // 3:
                         rebalance_needed = True
-                elif strategy_details.parameters['rebalancing_frequency'] == 'annual':
+                elif params.rebalancing_frequency == 'annual':
                     if last_rebalance_date is None or date.year != last_rebalance_date.year:
                         rebalance_needed = True
 
                 if rebalance_needed:
-                    rebalance_transactions = self._execute_rebalancing(strategy_details, historical_data, current_holdings, current_cash, current_prices, date, symbol_to_asset_map, debug_logs if debug else None)
+                    rebalance_transactions = self._execute_rebalancing(params, asset_weights_dict, historical_data, current_holdings, current_cash, current_prices, date, symbol_to_asset_map, debug_logs if debug else None)
                     daily_transactions.extend(rebalance_transactions)
                     last_rebalance_date = date
 
             elif strategy_details.strategy_type == "momentum":
                 rebalance_needed = False
-                if strategy_details.parameters['rebalancing_frequency'] == 'monthly':
+                if params.rebalancing_frequency == 'monthly':
                     if last_rebalance_date is None or date.month != last_rebalance_date.month:
                         rebalance_needed = True
                 # Add other frequencies if needed
@@ -349,17 +356,17 @@ class BacktestingEngine:
             "benchmark_data": benchmark_data
         }
 
-    def _execute_buy_and_hold(self, strategy_details, historical_data, current_holdings, current_cash, current_prices, date, symbol_to_asset_map: Dict[str, any]):
+    def _execute_buy_and_hold(self, asset_weights: Dict[str, float], historical_data, current_holdings, current_cash, current_prices, date, symbol_to_asset_map: Dict[str, any]):
         transactions = []
         if all(qty == 0 for qty in current_holdings.values()) and current_cash > 0:
-            total_weight = sum(strategy_details.parameters['asset_weights'].values())
+            total_weight = sum(asset_weights.values())
             if total_weight == 0:
                 return transactions
 
             local_cash = current_cash
             initial_capital_for_weights = current_cash
 
-            for symbol, weight in strategy_details.parameters['asset_weights'].items():
+            for symbol, weight in asset_weights.items():
                 if symbol in current_prices and pd.notna(current_prices[symbol]) and current_prices[symbol] > 0:
                     capital_to_allocate = initial_capital_for_weights * (weight / total_weight)
                     min_trade_qty = symbol_to_asset_map.get(symbol, {}).minimum_tradable_quantity if symbol_to_asset_map.get(symbol) else 1.0
@@ -378,10 +385,10 @@ class BacktestingEngine:
                         local_cash -= cost
         return transactions
 
-    def _execute_rebalancing(self, strategy_details, historical_data, current_holdings, current_cash, current_prices, date, symbol_to_asset_map: Dict[str, any], debug_logs: List[str] = None):
+    def _execute_rebalancing(self, strategy_params, asset_weights: Dict[str, float], historical_data, current_holdings, current_cash, current_prices, date, symbol_to_asset_map: Dict[str, any], debug_logs: List[str] = None):
         transactions = []
-        target_weights = strategy_details.parameters['asset_weights']
-        rebalancing_threshold = strategy_details.parameters.get('rebalancing_threshold', 0.0) or 0.0
+        target_weights = asset_weights
+        rebalancing_threshold = strategy_params.rebalancing_threshold if strategy_params.rebalancing_threshold is not None else 0.0
 
         current_portfolio_value = current_cash + sum(current_holdings[s] * current_prices.get(s, 0) for s in current_holdings if s in current_prices and pd.notna(current_prices[s]))
         
@@ -480,11 +487,12 @@ class BacktestingEngine:
 
     def _execute_momentum_strategy(self, strategy_details, historical_data, current_holdings, current_cash, current_prices, date, symbol_to_asset_map: Dict[str, any], fred_data: pd.DataFrame, debug_logs: List[str] = None) -> List[Dict]:
         transactions = []
-        asset_pool = strategy_details.parameters.get('asset_pool', [])
-        lookback_period_months = strategy_details.parameters.get('lookback_period_months', 6) # Default to 6 months
-        top_n_assets = strategy_details.parameters.get('top_n_assets', 1) # Default to top 1 asset
+        params = strategy_details.parameters
+        asset_pool = params.asset_pool or []
+        lookback_period_months = params.lookback_period_months or 6 # Default to 6 months
+        top_n_assets = params.top_n_assets or 1 # Default to top 1 asset
 
-        risk_free_asset_ticker = strategy_details.parameters.get('risk_free_asset_ticker')
+        risk_free_asset_ticker = params.risk_free_asset_ticker
         if not risk_free_asset_ticker: # Handles None or empty string
             risk_free_asset_ticker = 'DGS1'
 
@@ -625,52 +633,41 @@ class BacktestingEngine:
 
     def _execute_fundamental_value_strategy(self, strategy_details, historical_data, current_holdings, current_cash, current_prices, date, symbol_to_asset_map: Dict[str, any], fundamental_data_cache: Dict, debug_logs: List[str] = None) -> List[Dict]:
         transactions = []
+        params = strategy_details.parameters
         
         if debug_logs is not None:
             debug_logs.append(f"--- Fundamental Value Strategy Debug on {date.date()} ---")
-            debug_logs.append(f"  Strategy Parameters: {strategy_details.parameters.model_dump_json()}")
+            debug_logs.append(f"  Strategy Parameters: {params.model_dump_json()}")
 
-        fundamental_conditions = strategy_details.parameters.fundamental_conditions
-        re_evaluation_frequency = strategy_details.parameters.re_evaluation_frequency
-        fundamental_data_region = strategy_details.parameters.fundamental_data_region
+        re_evaluation_frequency = params.re_evaluation_frequency
 
-        if not fundamental_conditions:
-            if debug_logs is not None: debug_logs.append("  No fundamental conditions defined. Skipping strategy.")
-            return transactions
-
-        # Determine if re-evaluation is needed (simplified for now, assuming annual/quarterly)
-        # A more robust implementation would track last re-evaluation date
+        # Determine if re-evaluation is needed
         re_evaluate_this_period = False
-        if re_evaluation_frequency == 'annual' and date.month == 1 and date.day == 1: # Re-evaluate on Jan 1st
+        if re_evaluation_frequency == 'annual' and date.month == 1 and date.day == 1:
             re_evaluate_this_period = True
-        elif re_evaluation_frequency == 'quarterly' and date.day == 1 and date.month in [1, 4, 7, 10]: # Re-evaluate on Q1 start
+        elif re_evaluation_frequency == 'quarterly' and date.day == 1 and date.month in [1, 4, 7, 10]:
             re_evaluate_this_period = True
-        # If no re-evaluation needed, return empty transactions
+        
         if not re_evaluate_this_period:
-            if debug_logs is not None: debug_logs.append("  No re-evaluation needed this period.")
             return transactions
 
-        # Get current quarter/year for fundamental data lookup
+        if debug_logs is not None: debug_logs.append(f"  Re-evaluation triggered for {date.date()}.")
+
+        # 1. Screen the universe
+        if self.universe_df is None or self.universe_df.empty:
+            if debug_logs is not None: debug_logs.append("  Universe not loaded. Skipping evaluation.")
+            return transactions
+
+        qualified_assets = []
         current_year = date.year
         current_quarter = (date.month - 1) // 3 + 1
 
-        # Collect all assets to consider (current holdings + asset pool from strategy)
-        asset_pool = [item.asset for item in strategy_details.parameters.asset_weights] if strategy_details.parameters.asset_weights else []
-        all_assets_to_consider = set(current_holdings.keys()).union(set(asset_pool))
-
-        # Evaluate conditions for each asset
-        assets_meeting_criteria = []
-        for symbol in all_assets_to_consider:
-            if symbol not in current_prices or pd.isna(current_prices[symbol]) or current_prices[symbol] <= 0:
-                if debug_logs is not None: debug_logs.append(f"  Skipping {symbol}: No valid price for current date.")
-                continue
-
-            # Get fundamental data for the current period
-            # Need to find the most recent available fundamental data for the current date
-            # This is a simplified lookup; a robust solution would handle data availability and lag
+        for index, row in self.universe_df.iterrows():
+            symbol = row['Code']
+            
+            # Get the most recent fundamental data available
             fundamental_data = fundamental_data_cache.get(symbol, {}).get((current_year, current_quarter))
             if fundamental_data is None:
-                # Try previous quarter if current quarter data is not available
                 prev_quarter = current_quarter - 1
                 prev_year = current_year
                 if prev_quarter == 0:
@@ -679,99 +676,92 @@ class BacktestingEngine:
                 fundamental_data = fundamental_data_cache.get(symbol, {}).get((prev_year, prev_quarter))
             
             if fundamental_data is None:
-                if debug_logs is not None: debug_logs.append(f"  Skipping {symbol}: No fundamental data found for {current_year} Q{current_quarter} or previous.")
                 continue
 
+            # Evaluate conditions
             all_conditions_met = True
-            for condition in fundamental_conditions:
-                value_metric_val = 0.0
-                if condition.value_metric == "net_current_asset_value":
-                    current_assets = fundamental_data.get("current_assets", 0)
-                    total_liabilities = fundamental_data.get("total_liabilities", 0)
-                    value_metric_val = current_assets - total_liabilities
-                else:
-                    value_metric_val = fundamental_data.get(condition.value_metric)
+            for condition in params.fundamental_conditions:
+                # This evaluation logic is simplified. A robust implementation would handle various metrics.
+                # For now, we assume the data exists in the fundamental_data dict.
+                value_metric_val = fundamental_data.get(condition.value_metric)
                 comparison_metric_val = 0.0
-                if condition.comparison_metric == "constant":
-                    comparison_metric_val = 1.0 # Use 1.0 as a base for the multiplier to act as the constant
+                if condition.comparison_metric == "market_cap":
+                    comparison_metric_val = row['Marcap']
+                elif condition.comparison_metric == "constant":
+                    comparison_metric_val = 1.0
                 else:
                     comparison_metric_val = fundamental_data.get(condition.comparison_metric)
-                
-                # Handle market cap separately as it needs current price
-                if condition.comparison_metric == "market_cap":
-                    # Assuming shares outstanding is available in fundamental_data or Asset model
-                    # For now, let's assume we can get shares outstanding from fundamental_data
-                    shares_outstanding = fundamental_data.get("shares_outstanding", 0) # Placeholder
-                    if shares_outstanding > 0 and current_prices.get(symbol, 0) > 0:
-                        comparison_metric_val = current_prices[symbol] * shares_outstanding
-                    else:
-                        comparison_metric_val = 0 # Cannot calculate market cap
-                
+
                 if value_metric_val is None or comparison_metric_val is None:
-                    if debug_logs is not None: debug_logs.append(f"  Skipping condition for {symbol}: Missing metric data ({condition.value_metric} or {condition.comparison_metric}).")
                     all_conditions_met = False
                     break
 
-                # Evaluate the condition
-                condition_met = False
-                if condition.comparison_operator == '>':
-                    condition_met = value_metric_val > (comparison_metric_val * condition.comparison_multiplier)
-                elif condition.comparison_operator == '<':
-                    condition_met = value_metric_val < (comparison_metric_val * condition.comparison_multiplier)
-                elif condition.comparison_operator == '>=':
-                    condition_met = value_metric_val >= (comparison_metric_val * condition.comparison_multiplier)
-                elif condition.comparison_operator == '<=':
-                    condition_met = value_metric_val <= (comparison_metric_val * condition.comparison_multiplier)
-                elif condition.comparison_operator == '=':
-                    condition_met = value_metric_val == (comparison_metric_val * condition.comparison_multiplier)
+                multiplier = condition.comparison_multiplier if condition.comparison_multiplier is not None else 1.0
                 
-                if not condition_met:
+                op_map = {'>': lambda a, b: a > b, '<': lambda a, b: a < b, '>=': lambda a, b: a >= b, '<=': lambda a, b: a <= b, '=': lambda a, b: a == b}
+                if not op_map[condition.comparison_operator](value_metric_val, comparison_metric_val * multiplier):
                     all_conditions_met = False
                     break
             
             if all_conditions_met:
-                assets_meeting_criteria.append(symbol)
-                if debug_logs is not None: debug_logs.append(f"  {symbol} meets all fundamental criteria.")
-            else:
-                if debug_logs is not None: debug_logs.append(f"  {symbol} does NOT meet all fundamental criteria.")
+                rank_value = 0
+                if params.ranking_metric == 'market_cap':
+                    rank_value = row['Marcap']
+                # Add other ranking metrics here
 
-        # Generate transactions based on criteria
-        # Sell assets no longer meeting criteria
-        for symbol in current_holdings.keys():
-            if current_holdings[symbol] > 0 and symbol not in assets_meeting_criteria:
-                if symbol in current_prices and pd.notna(current_prices[symbol]) and current_prices[symbol] > 0:
-                    transactions.append({
-                        'symbol': symbol,
-                        'type': 'sell',
-                        'quantity': current_holdings[symbol], # Sell all
-                        'price': current_prices[symbol]
-                    })
-                    if debug_logs is not None: debug_logs.append(f"  Proposing SELL all {symbol} (no longer meets criteria).")
-                else:
-                    if debug_logs is not None: debug_logs.append(f"  Skipping SELL for {symbol}: No valid price.")
+                qualified_assets.append({'symbol': symbol, 'rank_value': rank_value})
 
-        # Buy assets meeting criteria (if not already held or not enough)
-        # This is a simplified allocation: allocate remaining cash equally among qualifying assets
-        qualifying_assets_to_buy = [s for s in assets_meeting_criteria if s not in current_holdings or current_holdings[s] == 0]
-        if qualifying_assets_to_buy and current_cash > 0:
-            cash_per_asset = current_cash / len(qualifying_assets_to_buy)
-            for symbol in qualifying_assets_to_buy:
-                if symbol in current_prices and pd.notna(current_prices[symbol]) and current_prices[symbol] > 0:
-                    min_trade_qty = symbol_to_asset_map.get(symbol, {}).minimum_tradable_quantity if symbol_to_asset_map.get(symbol) else 1.0
-                    quantity_to_buy = cash_per_asset / current_prices[symbol]
+        if debug_logs is not None: debug_logs.append(f"  Found {len(qualified_assets)} assets meeting fundamental criteria.")
+
+        # 2. Rank and select Top N
+        if not qualified_assets:
+            return transactions
+
+        reverse_sort = (params.ranking_order == 'desc')
+        sorted_assets = sorted(qualified_assets, key=lambda x: x['rank_value'], reverse=reverse_sort)
+        
+        top_n = params.top_n or len(sorted_assets)
+        target_assets = {item['symbol'] for item in sorted_assets[:top_n]}
+
+        if debug_logs is not None: debug_logs.append(f"  Selected Top {len(target_assets)} assets: {target_assets}")
+
+        # 3. Generate Trades
+        current_held_assets = {s for s, q in current_holdings.items() if q > 0}
+        assets_to_sell = current_held_assets - target_assets
+        assets_to_buy = target_assets - current_held_assets
+
+        # Sell transactions
+        for symbol in assets_to_sell:
+            if current_holdings[symbol] > 0 and current_prices.get(symbol) and pd.notna(current_prices[symbol]):
+                transactions.append({'symbol': symbol, 'type': 'sell', 'quantity': current_holdings[symbol], 'price': current_prices[symbol]})
+                if debug_logs is not None: debug_logs.append(f"  Proposing to SELL all {current_holdings[symbol]} shares of {symbol}")
+
+        # Buy transactions (equal weight)
+        if assets_to_buy:
+            # Calculate the total portfolio value available for reallocation
+            portfolio_value_for_reallocation = current_cash + sum(current_holdings[s] * current_prices.get(s, 0) for s in current_held_assets if s in current_prices and pd.notna(current_prices[s]))
+            
+            # Exclude assets to be sold from the calculation as their value will become cash
+            value_from_sells = sum(current_holdings[s] * current_prices.get(s, 0) for s in assets_to_sell if s in current_prices and pd.notna(current_prices[s]))
+            cash_after_sells = current_cash + value_from_sells
+
+            # The total value to be invested is the cash after sells plus the value of assets we continue to hold
+            continuing_assets = current_held_assets.intersection(target_assets)
+            value_of_continuing_assets = sum(current_holdings[s] * current_prices.get(s, 0) for s in continuing_assets if s in current_prices and pd.notna(current_prices[s]))
+            total_investable_value = cash_after_sells + value_of_continuing_assets
+
+            target_value_per_asset = total_investable_value / len(target_assets) if target_assets else 0
+
+            for symbol in assets_to_buy:
+                if current_prices.get(symbol) and pd.notna(current_prices[symbol]) and current_prices[symbol] > 0:
+                    quantity_to_buy = target_value_per_asset / current_prices[symbol]
+                    min_trade_qty = symbol_to_asset_map.get(symbol, {}).minimum_tradable_quantity or 1.0
                     if min_trade_qty > 0:
                         quantity_to_buy = (quantity_to_buy // min_trade_qty) * min_trade_qty
-                    
+
                     if quantity_to_buy > 0:
-                        transactions.append({
-                            'symbol': symbol,
-                            'type': 'buy',
-                            'quantity': quantity_to_buy,
-                            'price': current_prices[symbol]
-                        })
-                        if debug_logs is not None: debug_logs.append(f"  Proposing BUY {quantity_to_buy:.4f} shares of {symbol}.")
-                else:
-                    if debug_logs is not None: debug_logs.append(f"  Skipping BUY for {symbol}: No valid price.")
+                        transactions.append({'symbol': symbol, 'type': 'buy', 'quantity': quantity_to_buy, 'price': current_prices[symbol]})
+                        if debug_logs is not None: debug_logs.append(f"  Proposing to BUY {quantity_to_buy:.4f} shares of {symbol}")
 
         if debug_logs is not None:
             debug_logs.append(f"--- End Fundamental Value Strategy Debug ---\n")

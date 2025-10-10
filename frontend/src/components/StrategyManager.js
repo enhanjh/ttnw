@@ -6,25 +6,30 @@ import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import AddIcon from '@mui/icons-material/Add';
 import { fetchApi } from '../api';
 
+const defaultParameters = {
+  asset_weights: [],
+  rebalancing_frequency: 'monthly',
+  rebalancing_threshold: null,
+  minimum_tradable_quantity: 1.0,
+  fundamental_conditions: [],
+  re_evaluation_frequency: 'annual',
+  fundamental_data_region: 'KR',
+  top_n: 20,
+  ranking_metric: 'market_cap',
+  ranking_order: 'desc',
+  expected_return: null,
+  expected_std_dev: null,
+  expected_mdd: null,
+  expected_sharpe_ratio: null,
+};
+
 function StrategyManager() {
   const [strategies, setStrategies] = useState([]);
   const [newStrategy, setNewStrategy] = useState({
     name: '',
     description: '',
     strategy_type: '',
-    parameters: {
-      asset_weights: [],
-      rebalancing_frequency: 'monthly',
-      rebalancing_threshold: null,
-      minimum_tradable_quantity: 1.0,
-      fundamental_conditions: [],
-      re_evaluation_frequency: 'annual',
-      fundamental_data_region: 'KR',
-      expected_return: null,
-      expected_std_dev: null,
-      expected_mdd: null,
-      expected_sharpe_ratio: null,
-    },
+    parameters: defaultParameters,
   });
   const [editingStrategyId, setEditingStrategyId] = useState(null);
   const [editedStrategy, setEditedStrategy] = useState(null);
@@ -58,41 +63,24 @@ function StrategyManager() {
     fetchStrategies();
   }, [fetchStrategies]);
 
-  useEffect(() => {
-    // Clear the timeout when the component unmounts
-    return () => {
-      if (debounceTimeout.current) {
-        clearTimeout(debounceTimeout.current);
-      }
-    };
-  }, []); // Empty dependency array means this runs once on mount and cleanup on unmount
-
-  const debounceTimeout = useRef(null);
   const getStrategyUpdater = () => (dialogMode === 'add' ? setNewStrategy : setEditedStrategy);
 
   const handleStrategyChange = (e) => {
     const { name, value } = e.target;
-
-    if (debounceTimeout.current) {
-      clearTimeout(debounceTimeout.current);
-    }
-
-    debounceTimeout.current = setTimeout(() => {
-      const stateSetter = getStrategyUpdater();
-      stateSetter(prev => {
-        if (name.startsWith('parameters.')) {
-          const paramName = name.split('.')[1];
-          return {
-            ...prev,
-            parameters: {
-              ...prev.parameters,
-              [paramName]: value,
-            },
-          };
-        }
-        return { ...prev, [name]: value };
-      });
-    }, 300); // 300ms debounce delay
+    const stateSetter = getStrategyUpdater();
+    stateSetter(prev => {
+      if (name.startsWith('parameters.')) {
+        const paramName = name.split('.')[1];
+        return {
+          ...prev,
+          parameters: {
+            ...prev.parameters,
+            [paramName]: value,
+          },
+        };
+      }
+      return { ...prev, [name]: value };
+    });
   };
 
   const handleAddAsset = () => {
@@ -118,22 +106,16 @@ function StrategyManager() {
   };
 
   const handleAssetChange = (index, field, value) => {
-    if (debounceTimeout.current) {
-      clearTimeout(debounceTimeout.current);
-    }
-
-    debounceTimeout.current = setTimeout(() => {
-        const stateSetter = getStrategyUpdater();
-        stateSetter(prev => ({
-          ...prev,
-          parameters: {
-            ...prev.parameters,
-            asset_weights: prev.parameters.asset_weights.map((item, i) =>
-              i === index ? { ...item, [field]: value } : item
-            ),
-          },
-        }));
-    }, 300);
+    const stateSetter = getStrategyUpdater();
+    stateSetter(prev => ({
+      ...prev,
+      parameters: {
+        ...prev.parameters,
+        asset_weights: prev.parameters.asset_weights.map((item, i) =>
+          i === index ? { ...item, [field]: value } : item
+        ),
+      },
+    }));
   };
 
   const handleAddFundamentalCondition = () => {
@@ -165,22 +147,16 @@ function StrategyManager() {
   };
 
   const handleFundamentalConditionChange = (index, field, value) => {
-    if (debounceTimeout.current) {
-      clearTimeout(debounceTimeout.current);
-    }
-
-    debounceTimeout.current = setTimeout(() => {
-        const stateSetter = getStrategyUpdater();
-        stateSetter(prev => ({
-          ...prev,
-          parameters: {
-            ...prev.parameters,
-            fundamental_conditions: prev.parameters.fundamental_conditions.map((item, i) =>
-              i === index ? { ...item, [field]: value } : item
-            ),
-          },
-        }));
-    }, 300);
+    const stateSetter = getStrategyUpdater();
+    stateSetter(prev => ({
+      ...prev,
+      parameters: {
+        ...prev.parameters,
+        fundamental_conditions: prev.parameters.fundamental_conditions.map((item, i) =>
+          i === index ? { ...item, [field]: value } : item
+        ),
+      },
+    }));
   };
 
   const handleAddClick = () => {
@@ -188,18 +164,7 @@ function StrategyManager() {
       name: '',
       description: '',
       strategy_type: '',
-      parameters: {
-        asset_weights: [],
-        rebalancing_frequency: 'monthly',
-        rebalancing_threshold: null,
-        fundamental_conditions: [],
-        re_evaluation_frequency: 'annual',
-        fundamental_data_region: 'KR',
-        expected_return: null,
-        expected_std_dev: null,
-        expected_mdd: null,
-        expected_sharpe_ratio: null,
-      },
+      parameters: defaultParameters,
     });
     setAssetWeightsError(null); // Clear error on add
     setDialogMode('add');
@@ -457,65 +422,68 @@ function StrategyManager() {
 
 
 
-                    <Typography variant="h6" sx={{ mt: 3, mb: 1 }}>
-                      {(dialogMode === 'add' ? newStrategy.strategy_type : editedStrategy?.strategy_type) === 'momentum' ? 'Asset Pool' : 'Asset Weights'}
-                    </Typography>
-                    {(dialogMode === 'add' ? newStrategy.parameters.asset_weights : editedStrategy?.parameters?.asset_weights || []).map((aw, index) => (
-                      <Box key={index} sx={{ display: 'flex', gap: 1, mb: 1, alignItems: 'center' }}>
-                        <Autocomplete
-                          options={globalAssets}
-                          getOptionLabel={(option) => option.symbol ? `${option.symbol} - ${option.name}` : ''}
-                          value={globalAssets.find(asset => asset.symbol === aw.asset) || null}
-                          onChange={(event, newValue) => {
-                            handleAssetChange(index, 'asset', newValue ? newValue.symbol : '');
-                            handleAssetChange(index, 'asset_type', newValue ? newValue.asset_type : '');
-                          }}
-                          renderInput={(params) => (
-                            <TextField
-                              {...params}
-                              margin="dense"
-                              label="Asset Ticker"
-                              variant="standard"
-                              sx={{ flex: 2 }}
-                            />
-                          )}
-                          sx={{ flex: 2 }}
-                        />
-                        <TextField
-                          margin="dense"
-                          label="Asset Type"
-                          variant="standard"
-                          value={aw.asset_type || ''}
-                          InputProps={{ readOnly: true }} // Make it read-only
-                          sx={{ flex: 1 }}
-                        />
-                        {(dialogMode === 'add' ? newStrategy.strategy_type : editedStrategy?.strategy_type) !== 'momentum' && (
-                          <TextField
-                            margin="dense"
-                            label="Weight"
-                            type="number"
-                            variant="standard"
-                            value={aw.weight}
-                            onChange={(e) => handleAssetChange(index, 'weight', e.target.value)}
-                            sx={{ flex: 1 }}
-                          />
-                        )}
-                        <IconButton edge="end" aria-label="delete" onClick={() => handleRemoveAsset(index)}>
-                          <DeleteIcon />
-                        </IconButton>
-                      </Box>
-                    ))}          <Button
-            variant="outlined"
-            startIcon={<AddIcon />}
-            onClick={handleAddAsset}
-            sx={{ mt: 1, mb: 2 }}
-          >
-            Add Asset
-          </Button>
-          {assetWeightsError && (
-            <Typography color="error" variant="body2" sx={{ mb: 2 }}>
-              {assetWeightsError}
-            </Typography>
+          {/* Asset Weights / Asset Pool Section (Hidden for Fundamental Indicator) */}
+          {(dialogMode === 'add' ? newStrategy.strategy_type : editedStrategy?.strategy_type) !== 'fundamental_indicator' && (
+            <>
+              {(dialogMode === 'add' ? newStrategy.parameters.asset_weights : editedStrategy?.parameters?.asset_weights || []).map((aw, index) => (
+                <Box key={index} sx={{ display: 'flex', gap: 1, mb: 1, alignItems: 'center' }}>
+                  <Autocomplete
+                    options={globalAssets}
+                    getOptionLabel={(option) => option.symbol ? `${option.symbol} - ${option.name}` : ''}
+                    value={globalAssets.find(asset => asset.symbol === aw.asset) || null}
+                    onChange={(event, newValue) => {
+                      handleAssetChange(index, 'asset', newValue ? newValue.symbol : '');
+                      handleAssetChange(index, 'asset_type', newValue ? newValue.asset_type : '');
+                    }}
+                    renderInput={(params) => (
+                      <TextField
+                        {...params}
+                        margin="dense"
+                        label="Asset Ticker"
+                        variant="standard"
+                        sx={{ flex: 2 }}
+                      />
+                    )}
+                    sx={{ flex: 2 }}
+                  />
+                  <TextField
+                    margin="dense"
+                    label="Asset Type"
+                    variant="standard"
+                    value={aw.asset_type || ''}
+                    InputProps={{ readOnly: true }} // Make it read-only
+                    sx={{ flex: 1 }}
+                  />
+                  {(dialogMode === 'add' ? newStrategy.strategy_type : editedStrategy?.strategy_type) !== 'momentum' && (
+                    <TextField
+                      margin="dense"
+                      label="Weight"
+                      type="number"
+                      variant="standard"
+                      value={aw.weight}
+                      onChange={(e) => handleAssetChange(index, 'weight', e.target.value)}
+                      sx={{ flex: 1 }}
+                    />
+                  )}
+                  <IconButton edge="end" aria-label="delete" onClick={() => handleRemoveAsset(index)}>
+                    <DeleteIcon />
+                  </IconButton>
+                </Box>
+              ))}
+              <Button
+                variant="outlined"
+                startIcon={<AddIcon />}
+                onClick={handleAddAsset}
+                sx={{ mt: 1, mb: 2 }}
+              >
+                Add Asset
+              </Button>
+              {assetWeightsError && (
+                <Typography color="error" variant="body2" sx={{ mb: 2 }}>
+                  {assetWeightsError}
+                </Typography>
+              )}
+            </>
           )}
 
           {(dialogMode === 'add' ? newStrategy.strategy_type : editedStrategy?.strategy_type) === 'asset_allocation' && (
@@ -661,7 +629,7 @@ function StrategyManager() {
                     <Select
                       name="comparison_operator"
                       value={condition.comparison_operator || ''}
-                      label="Operator"
+                      label="Operator" 
                       onChange={(e) => handleFundamentalConditionChange(index, 'comparison_operator', e.target.value)}
                     >
                       <MenuItem value=">">></MenuItem>
@@ -734,6 +702,43 @@ function StrategyManager() {
                 >
                   <MenuItem value="KR">South Korea (Open DART)</MenuItem>
                   <MenuItem value="US">United States (Placeholder)</MenuItem>
+                </Select>
+              </FormControl>
+
+              {/* New fields for Top N */}
+              <TextField
+                margin="dense"
+                name="parameters.top_n"
+                label="Number of Top Assets (N)"
+                type="number"
+                fullWidth
+                variant="standard"
+                onChange={handleStrategyChange}
+                sx={{ mb: 2 }}
+              />
+
+              <FormControl fullWidth margin="dense" sx={{ mb: 2 }}>
+                <InputLabel>Ranking Metric</InputLabel>
+                <Select
+                  name="parameters.ranking_metric"
+                  value={dialogMode === 'add' ? newStrategy.parameters.ranking_metric : editedStrategy?.parameters?.ranking_metric || ''}
+                  label="Ranking Metric"
+                  onChange={handleStrategyChange}
+                >
+                  <MenuItem value="market_cap">Market Cap</MenuItem>
+                  {/* Add more ranking metrics here */}
+                </Select>
+              </FormControl>
+              <FormControl fullWidth margin="dense" sx={{ mb: 2 }}>
+                <InputLabel>Ranking Order</InputLabel>
+                <Select
+                  name="parameters.ranking_order"
+                  value={dialogMode === 'add' ? newStrategy.parameters.ranking_order : editedStrategy?.parameters?.ranking_order || ''}
+                  label="Ranking Order"
+                  onChange={handleStrategyChange}
+                >
+                  <MenuItem value="desc">Descending (High to Low)</MenuItem>
+                  <MenuItem value="asc">Ascending (Low to High)</MenuItem>
                 </Select>
               </FormControl>
             </>
