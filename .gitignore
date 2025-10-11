@@ -3,5 +3,8 @@ ttnw/*
 logs/*
 install/*
 KIS*
+celerybeat-schedule
+*.log
+
 # Ignore environment variables files
 **/.env

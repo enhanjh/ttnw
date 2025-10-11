@@ -7,6 +7,8 @@ from . import schemas
 
 class Portfolio(Document):
     name: str = Field(..., max_length=50)
+    broker_provider: Optional[str] = Field(None, max_length=50) # e.g., 'hantoo_vps', 'hantoo_prod'
+    broker_account_no: Optional[str] = Field(None, max_length=50)
     created_at: datetime = Field(default_factory=datetime.now)
 
     class Settings:

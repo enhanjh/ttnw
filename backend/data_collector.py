@@ -65,11 +65,24 @@ def get_stock_data(symbol: str, start_date: str, end_date: str = None) -> pd.Dat
         print(f"Error fetching data for {symbol} from {start_date} to {end_date}: {e}")
         return pd.DataFrame()
 
-def get_fred_yield_curve(api_key: str, start_date: str, end_date: str) -> pd.DataFrame:
+from dotenv import load_dotenv
+
+def get_fred_yield_curve(start_date: str, end_date: str) -> pd.DataFrame:
     """
     Fetches US Treasury yield curve rates from the FRED API.
+    It reads the FRED_API_KEY from a .env file in the same directory.
     """
     try:
+        # Load .env file from the backend directory
+        backend_dir = os.path.dirname(os.path.abspath(__file__))
+        dotenv_path = os.path.join(backend_dir, '.env')
+        load_dotenv(dotenv_path=dotenv_path)
+
+        api_key = os.getenv("FRED_API_KEY")
+        if not api_key:
+            print("Error: FRED_API_KEY not found in .env file.")
+            return pd.DataFrame()
+        
         fred = Fred(api_key=api_key)
         
         series_map = {
@@ -111,12 +124,16 @@ def get_fred_yield_curve(api_key: str, start_date: str, end_date: str) -> pd.Dat
         print(f"Error fetching or processing FRED data: {e}")
         return pd.DataFrame()
 
-def get_korean_fundamental_data(symbol: str, api_key: str, year: int, quarter: int, re_evaluation_frequency: str) -> Dict:
+def get_korean_fundamental_data(symbol: str, year: int, quarter: int, re_evaluation_frequency: str) -> Dict:
     """
-    Fetches Korean fundamental data (balance sheet, income statement) for a given symbol and period using OpenDartReader.
-    Assumes symbol is the stock_code (e.g., '005930') which can be used directly as corp_code.
+    Fetches Korean fundamental data for a given symbol and period using OpenDartReader.
     """
-    dart = OpenDartReader.OpenDartReader(api_key)
+    api_key = os.getenv("OPENDART_API_KEY")
+    if not api_key:
+        print("Error: OPENDART_API_KEY not found in .env file.")
+        return {}
+
+    dart = OpenDartReader(api_key)
 
     # Use symbol directly as corp_code as per user's clarification
     corp_code = symbol # Assuming symbol is the stock_code
@@ -140,20 +157,22 @@ def get_korean_fundamental_data(symbol: str, api_key: str, year: int, quarter: i
     try:
         finstate = dart.finstate(corp=corp_code, bsns_year=year, reprt_code=reprt_code)
         if finstate is None or finstate.empty:
-            print(f"Warning: No financial statements found for {symbol} ({corp_code}) in {year} Q{quarter}.")
+            # This can happen for preferred stocks or when data is not available
+            # print(f"Warning: No financial statements found for {symbol} ({corp_code}) in {year} Q{quarter}.")
             return {}
 
+
         # Extract relevant data
-        current_assets = finstate[finstate['account_nm'] == '유동자산']['thstrm_amount'].iloc[0] if '유동자산' in finstate['account_nm'].values else 0
-        total_liabilities = finstate[finstate['account_nm'] == '부채총계']['thstrm_amount'].iloc[0] if '부채총계' in finstate['account_nm'].values else 0
-        net_income = finstate[finstate['account_nm'] == '당기순이익']['thstrm_amount'].iloc[0] if '당기순이익' in finstate['account_nm'].values else 0
-        eps = finstate[finstate['account_nm'] == '주당순이익']['thstrm_amount'].iloc[0] if '주당순이익' in finstate['account_nm'].values else 0
+        current_assets_str = finstate[finstate['account_nm'] == '유동자산']['thstrm_amount'].iloc[0] if '유동자산' in finstate['account_nm'].values else '0'
+        total_liabilities_str = finstate[finstate['account_nm'] == '부채총계']['thstrm_amount'].iloc[0] if '부채총계' in finstate['account_nm'].values else '0'
+        net_income_str = finstate[finstate['account_nm'] == '당기순이익']['thstrm_amount'].iloc[0] if '당기순이익' in finstate['account_nm'].values else '0'
+        eps_str = finstate[finstate['account_nm'] == '주당순이익']['thstrm_amount'].iloc[0] if '주당순이익' in finstate['account_nm'].values else '0'
 
         return {
-            "current_assets": float(current_assets),
-            "total_liabilities": float(total_liabilities),
-            "net_income": float(net_income),
-            "eps": float(eps),
+            "current_assets": float(current_assets_str.replace(',', '') or 0),
+            "total_liabilities": float(total_liabilities_str.replace(',', '') or 0),
+            "net_income": float(net_income_str.replace(',', '') or 0),
+            "eps": float(eps_str.replace(',', '') or 0),
             # Market Cap will be added later
         }
 
@@ -187,9 +206,10 @@ def get_asset_universe(region: str, top_n: Optional[int] = None, ranking_metric:
             # Marcap is in KRW 100,000,000. Convert to absolute value.
             krx['Marcap'] = krx['Marcap'] * 100000000
 
-            if top_n is not None and ranking_metric is not None and ranking_metric in krx.columns:
-                # Select 5 * top_n assets
-                krx = krx.head(top_n * 5)
+            if top_n is not None and ranking_metric == 'Marcap' and 'Marcap' in krx.columns:
+                # Sort by the ranking metric before taking the top N
+                reverse_sort = (ranking_order == 'desc')
+                krx = krx.sort_values(by=ranking_metric, ascending=not reverse_sort).head(top_n * 5)
 
             return krx
         except Exception as e:
