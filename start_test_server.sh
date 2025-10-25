@@ -20,12 +20,8 @@ cleanup() {
 trap cleanup EXIT
 
 # --- Check for required .env files ---
-if [ ! -f backend/.env ]; then
+if [ ! -f .env ]; then
     echo "ERROR: Backend .env file not found!"
-    exit 1
-fi
-if [ ! -f frontend/.env ]; then
-    echo "ERROR: Frontend .env file not found!"
     exit 1
 fi
 

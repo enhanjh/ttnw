@@ -9,7 +9,7 @@ import os
 from dotenv import load_dotenv
 
 # Load .env file from the same directory
-dotenv_path = os.path.join(os.path.dirname(__file__), '.env')
+dotenv_path = os.path.join(os.getcwd(), '.env')
 if os.path.exists(dotenv_path):
     load_dotenv(dotenv_path=dotenv_path)
 
@@ -39,6 +39,7 @@ async def init_db():
             models.KOSDAQ_Symbol,
             models.Strategy,
             models.BacktestResult,
+            models.VirtualTransaction,
         ],
     )
 

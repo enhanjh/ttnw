@@ -36,6 +36,21 @@ class Transaction(Document):
     class Settings:
         name = "transactions"
 
+
+class VirtualTransaction(Document):
+    asset_id: PydanticObjectId
+    portfolio_id: PydanticObjectId # This will be the virtual portfolio ID
+    backtest_result_id: PydanticObjectId # Link to the BacktestResult
+    transaction_type: str
+    quantity: float
+    price: float
+    fee: float = 0.0
+    tax: float = 0.0
+    transaction_date: datetime = Field(default_factory=datetime.now)
+
+    class Settings:
+        name = "virtual_transactions" # Separate collection for virtual transactions
+
 class US_Symbol(Document):
     symbol: str = Field(..., max_length=50)
     name: str = Field(..., max_length=100)
@@ -73,23 +88,11 @@ class Strategy(Document):
 
 class BacktestResult(Document):
     name: str = Field(..., max_length=100)
-    strategy_id: PydanticObjectId # Store ObjectId of the Strategy used
+    virtual_portfolio_id: PydanticObjectId
+    strategy: Link[Strategy] # Link directly to the Strategy document
     start_date: datetime
     end_date: datetime
     initial_capital: float
-
-    # Performance Metrics
-    final_capital: float
-    annualized_return: float
-    volatility: float
-    max_drawdown: float
-    sharpe_ratio: float
-
-    # Detailed Data
-    portfolio_value: List[Dict] # List of {'Date': 'YYYY-MM-DD', 'Value': float}
-    returns: Dict[str, float] # Dictionary of {'YYYY-MM-DD': float}
-    cumulative_returns: Dict[str, float] # Dictionary of {'YYYY-MM-DD': float}
-    transactions: List[Dict] # List of transaction dictionaries
 
     created_at: datetime = Field(default_factory=datetime.now)
 

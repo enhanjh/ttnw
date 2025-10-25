@@ -48,6 +48,30 @@ class Transaction(TransactionBase):
         json_encoders={ObjectId: str} # Add custom encoder
     )
 
+
+class VirtualTransactionBase(BaseModel):
+    asset_id: PydanticObjectId
+    portfolio_id: PydanticObjectId
+    backtest_result_id: PydanticObjectId # Link to the BacktestResult
+    transaction_type: str
+    quantity: float
+    price: float
+    transaction_date: Optional[datetime] = None
+    fee: Optional[float] = 0.0
+    tax: Optional[float] = 0.0
+
+class VirtualTransactionCreate(VirtualTransactionBase):
+    pass
+
+class VirtualTransaction(VirtualTransactionBase):
+    id: PydanticObjectId = Field()
+
+    model_config = ConfigDict(
+        from_attributes=True,
+        arbitrary_types_allowed=True,
+        json_encoders={ObjectId: str}
+    )
+
 class PortfolioBase(BaseModel):
     name: str
 
@@ -80,7 +104,7 @@ class FundamentalCondition(BaseModel):
 
 class StrategyParameters(BaseModel):
 
-    asset_weights: Optional[List[AssetWeightInStrategy]] = Field(None, description="List of assets with their weights and types")
+    asset_weights: Optional[Dict[str, float]] = Field(None, description="Dictionary of asset symbols to their target weights")
 
     rebalancing_frequency: str = Field(..., description="Frequency of rebalancing (e.g., 'monthly', 'quarterly', 'annual', 'never')")
     rebalancing_threshold: Optional[float] = Field(None, description="Percentage deviation from target weight to trigger rebalancing (e.g., 0.05 for 5%)")
@@ -116,6 +140,16 @@ class StrategyBacktestRequest(BaseModel):
     initial_capital: float = 100000000.0
     debug: bool = False
 
+class BacktestDetailsRequest(BaseModel):
+    virtual_portfolio_id: PydanticObjectId
+    start_date: str
+    end_date: str
+    initial_capital: float
+    strategy_id: PydanticObjectId # Add strategy_id
+    strategy_name: str # Add strategy_name
+    transactions_log: List[VirtualTransactionCreate]
+    debug_logs: Optional[List[str]] = None
+
 class Strategy(StrategyCreate):
     id: PydanticObjectId = Field(...)
     created_at: datetime
@@ -129,23 +163,18 @@ class Strategy(StrategyCreate):
 
 class BacktestResultBase(BaseModel):
     name: str
+    virtual_portfolio_id: PydanticObjectId
     start_date: datetime
     end_date: datetime
     initial_capital: float
 
-    final_capital: float
-    annualized_return: float
-    volatility: float
-    max_drawdown: float
-    sharpe_ratio: float
-
-    portfolio_value: List[Dict]
-    returns: Dict[str, float]
-    cumulative_returns: Dict[str, float]
-    transactions: List[Dict]
-
 class BacktestResultCreate(BacktestResultBase):
-    strategy_id: PydanticObjectId
+    strategy_id: PydanticObjectId # Accept only the strategy ID
+
+class BacktestSaveRequest(BacktestResultCreate): # Inherit metadata
+    strategy_name: str # Add strategy_name for saving
+    transactions_log: List[VirtualTransactionCreate]
+    debug_logs: Optional[List[str]] = None # Include debug logs for saving
 
 class BacktestResult(BacktestResultBase):
     id: PydanticObjectId = Field(...)
@@ -157,3 +186,16 @@ class BacktestResult(BacktestResultBase):
         arbitrary_types_allowed=True,
         json_encoders={ObjectId: str}
     )
+
+class BacktestResultDetails(BacktestResult): # Inherit metadata from BacktestResult
+    final_capital: float
+    annualized_return: float
+    volatility: float
+    max_drawdown: float
+    sharpe_ratio: float
+
+    portfolio_value: List[Dict]
+    returns: Dict[str, float]
+    cumulative_returns: Dict[str, float]
+    transactions: List[Dict]
+    debug_logs: Optional[List[str]] = None

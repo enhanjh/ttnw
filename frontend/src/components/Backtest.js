@@ -30,6 +30,9 @@ function Backtest() {
   const [endDate, setEndDate] = useState('');
   const [initialCapital, setInitialCapital] = useState('100,000,000'); // Changed to string for formatting
   const [backtestResults, setBacktestResults] = useState(null);
+  const [currentBacktestResultId, setCurrentBacktestResultId] = useState(null);
+  const [currentVirtualPortfolioId, setCurrentVirtualPortfolioId] = useState(null);
+  const [currentTransactionsLog, setCurrentTransactionsLog] = useState([]); // New state for transactions log
 
   const handleCapitalChange = (e) => {
     const rawValue = e.target.value.replace(/,/g, '');
@@ -45,7 +48,28 @@ function Backtest() {
   const [debug, setDebug] = useState(false);
 
   const [savedBacktests, setSavedBacktests] = useState([]); // New state for saved backtests
-  const [showSaveDialog, setShowSaveDialog] = useState(false); // New state for save dialog
+
+    const fetchDetailedBacktestData = useCallback(async (backtestResultId) => {
+      setLoading(true);
+      setError(null);
+      try {
+        const detailedResult = await fetchApi(`/api/backtest_results/${backtestResultId}/calculate_and_get_details`, {
+          method: 'PUT',
+        });
+  
+        const benchmarkResponse = await fetchApi(
+          `/api/backtest/benchmarks?start_date=${detailedResult.start_date}&end_date=${detailedResult.end_date}&initial_capital=${parseFloat(detailedResult.initial_capital)}`
+        );
+  
+      const mergedData = { ...detailedResult, benchmark_data: benchmarkResponse.benchmark_data };
+      setBacktestResults(mergedData); // <--- This should populate the results
+    } catch (err) {
+      setError(err.message);
+      console.error("Error fetching detailed backtest data:", err);
+    } finally {
+      setLoading(false);
+    }
+    }, []);
 
   // Fetch strategies on component mount
   useEffect(() => {
@@ -90,7 +114,7 @@ function Backtest() {
     }
 
     try {
-      const data = await fetchApi('/api/backtest/strategy', {
+      const taskResponse = await fetchApi('/api/backtest/strategy', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -104,81 +128,66 @@ function Backtest() {
         }),
       });
 
-      setBacktestResults(data);
+      const taskId = taskResponse.task_id;
+      if (!taskId) {
+        throw new Error('Failed to get task ID from backtest request.');
+      }
+
+      // Start polling for results
+      const pollInterval = setInterval(async () => {
+        try {
+          const resultResponse = await fetchApi(`/api/backtest/results/task/${taskId}`);
+          if (resultResponse.status === 'SUCCESS') {
+            clearInterval(pollInterval);
+            const result = resultResponse.result;
+            if (result && result.backtest_result_id) {
+              // The backend task has saved the result. Now, we trigger the calculation
+              // of detailed metrics and fetch the complete result for display.
+              await fetchDetailedBacktestData(result.backtest_result_id);
+
+              // Refresh the list of saved backtests to show the new entry
+              const updatedSavedBacktests = await fetchApi('/api/backtest_results/');
+              setSavedBacktests(updatedSavedBacktests);
+              alert('Backtest completed and results are displayed!');
+
+            } else {
+              setError("Backtest task succeeded but the result ID is missing.");
+              setLoading(false);
+            }
+          } else if (resultResponse.status === 'FAILURE') {
+            clearInterval(pollInterval);
+            setError(`Backtest failed: ${resultResponse.error || 'Unknown error'}`);
+            setLoading(false);
+          }
+        } catch (pollError) {
+          clearInterval(pollInterval);
+          setError(`Error polling backtest status: ${pollError.message}`);
+          setLoading(false);
+          console.error("Error polling backtest status:", pollError);
+        }
+      }, 2000); // Poll every 2 seconds
+
     } catch (err) {
       setError(err.message);
       console.error("Error during strategy backtest:", err);
-    } finally {
       setLoading(false);
     }
   };
 
-  const handleSaveBacktestResult = async (resultNameFromDialog) => {
-    if (!resultNameFromDialog.trim()) {
-      setError("Result name cannot be empty.");
-      return;
-    }
-    if (!backtestResults) {
-      setError("No backtest results to save.");
-      return;
-    }
 
-    setLoading(true);
-    setError(null);
-
-    try {
-      const dataToSave = {
-        name: resultNameFromDialog,
-        strategy_id: selectedStrategyId, // Assuming selectedStrategyId is the ID of the strategy used
-        start_date: startDate,
-        end_date: endDate,
-        initial_capital: parseFloat(initialCapital.replace(/,/g, '')),
-        final_capital: backtestResults.final_capital,
-        annualized_return: backtestResults.annualized_return,
-        volatility: backtestResults.volatility,
-        max_drawdown: backtestResults.max_drawdown,
-        sharpe_ratio: backtestResults.sharpe_ratio,
-        portfolio_value: backtestResults.portfolio_value,
-        returns: backtestResults.returns,
-        cumulative_returns: backtestResults.cumulative_returns,
-        transactions: backtestResults.transactions,
-      };
-
-      await fetchApi('/api/backtest_results/', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(dataToSave),
-      });
-
-      setShowSaveDialog(false);
-      // Refresh saved backtests list
-      const updatedSavedBacktests = await fetchApi('/api/backtest_results/');
-      setSavedBacktests(updatedSavedBacktests);
-      alert('Backtest results saved successfully!');
-    } catch (err) {
-      setError(err.message);
-      console.error("Error saving backtest results:", err);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const handleLoadBacktestResult = useCallback(async (resultId) => {
     setLoading(true);
     setError(null);
     try {
-      const data = await fetchApi(`/api/backtest_results/${resultId}`);
+      const data = await fetchApi(`/api/backtest_results/${resultId}`); // Fetch BacktestResult metadata
 
-      // Fetch benchmark data for the loaded result's period
-      const benchmarkResponse = await fetchApi(
-        `/api/backtest/benchmarks?start_date=${new Date(data.start_date).toISOString().split('T')[0]}&end_date=${new Date(data.end_date).toISOString().split('T')[0]}&initial_capital=${data.initial_capital}`
-      );
+      // Transactions are no longer needed here, as the calculation endpoint will fetch them.
 
-      // Merge benchmark data into the loaded backtest data
-      const mergedData = { ...data, benchmark_data: benchmarkResponse.benchmark_data };
+      // Call fetchDetailedBacktestData to calculate and display details
+      await fetchDetailedBacktestData(data.id);
 
-      setBacktestResults(mergedData);
-      // Also set the selected strategy and dates from the loaded result for context
+      // Update form fields for context
       setSelectedStrategyId(data.strategy.id);
       setStartDate(new Date(data.start_date).toISOString().split('T')[0]);
       setEndDate(new Date(data.end_date).toISOString().split('T')[0]);
@@ -190,7 +199,7 @@ function Backtest() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [fetchDetailedBacktestData]);
 
   const handleDeleteBacktestResult = useCallback(async (resultId) => {
     if (!window.confirm("Are you sure you want to delete this saved backtest result?")) {
@@ -222,37 +231,76 @@ function Backtest() {
     // Add more benchmarks and colors here
   };
 
-  const chartData = useMemo(() => ({
-    labels: backtestResults?.portfolio_value?.map(data => new Date(data.Date).toLocaleDateString()),
-    datasets: [
-      {
-        label: 'Portfolio Value',
-        data: backtestResults?.portfolio_value?.map(data => data.Value),
-        borderColor: 'rgb(75, 192, 192)',
-        backgroundColor: 'rgba(75, 192, 192, 0.5)',
-        tension: 0.1,
-        yAxisID: 'y', // Assign to primary Y-axis
-      },
-      {
-        label: 'Cumulative Returns (%)',
-        data: backtestResults?.cumulative_returns ? Object.values(backtestResults.cumulative_returns).map(val => val * 100) : [],
-        borderColor: 'rgb(255, 99, 132)',
-        backgroundColor: 'rgba(255, 99, 132, 0.5)',
-        tension: 0.1,
-        yAxisID: 'y1', // Assign to secondary Y-axis
-      },
-      ...(backtestResults?.benchmark_data ? Object.entries(backtestResults.benchmark_data).map(([name, data]) => ({
-        label: `${name} Benchmark`,
-        data: data.map(item => item.Value),
-        borderColor: benchmarkColors[name] || 'rgb(153, 102, 255)', // Fallback color
-        backgroundColor: benchmarkColors[name] ? benchmarkColors[name].replace('rgb', 'rgba').replace(')', ', 0.5)') : 'rgba(153, 102, 255, 0.5)',
-        tension: 0.1,
-        yAxisID: 'y', // Benchmarks also use the primary Y-axis for value
-        borderDash: [5, 5], // Dotted line for benchmarks
-        pointRadius: 0, // Remove point markers for benchmarks
-      })) : []),
-    ],
-  }), [backtestResults]);
+  const chartData = useMemo(() => {
+    const allDates = new Set();
+
+    // Add portfolio value dates
+    backtestResults?.portfolio_value?.forEach(data => allDates.add(new Date(data.Date).toISOString().split('T')[0]));
+
+    // Add benchmark dates
+    if (backtestResults?.benchmark_data) {
+      Object.values(backtestResults.benchmark_data).forEach(benchmarkSeries => {
+        benchmarkSeries.forEach(item => allDates.add(new Date(item.Date).toISOString().split('T')[0]));
+      });
+    }
+
+    const sortedUniqueDates = Array.from(allDates).sort();
+
+    // Helper to create a date-value map for a series
+    const createDateValueMap = (series) => {
+      const map = new Map();
+      series?.forEach(item => {
+        const date = new Date(item.Date).toISOString().split('T')[0];
+        map.set(date, item.Value);
+      });
+      return map;
+    };
+
+    const portfolioValueMap = createDateValueMap(backtestResults?.portfolio_value);
+    const cumulativeReturnsMap = backtestResults?.cumulative_returns ? new Map(Object.entries(backtestResults.cumulative_returns)) : new Map();
+
+    const benchmarkMaps = {};
+    if (backtestResults?.benchmark_data) {
+      Object.entries(backtestResults.benchmark_data).forEach(([name, series]) => {
+        benchmarkMaps[name] = createDateValueMap(series);
+      });
+    }
+
+    return {
+      labels: sortedUniqueDates.map(date => new Date(date).toLocaleDateString()),
+      datasets: [
+        {
+          label: 'Portfolio Value',
+          data: sortedUniqueDates.map(date => portfolioValueMap.get(date) || null), // Fill gaps with null
+          borderColor: 'rgb(75, 192, 192)',
+          backgroundColor: 'rgba(75, 192, 192, 0.5)',
+          tension: 0.1,
+          yAxisID: 'y', // Assign to primary Y-axis
+        },
+        {
+          label: 'Cumulative Returns (%)',
+          data: sortedUniqueDates.map(date => {
+            const value = cumulativeReturnsMap.get(date);
+            return value !== undefined ? value * 100 : null; // Fill gaps with null
+          }),
+          borderColor: 'rgb(255, 99, 132)',
+          backgroundColor: 'rgba(255, 99, 132, 0.5)',
+          tension: 0.1,
+          yAxisID: 'y1', // Assign to secondary Y-axis
+        },
+        ...(backtestResults?.benchmark_data ? Object.entries(backtestResults.benchmark_data).map(([name, series]) => ({
+          label: `${name} Benchmark`,
+          data: sortedUniqueDates.map(date => benchmarkMaps[name].get(date) || null), // Fill gaps with null
+          borderColor: benchmarkColors[name] || 'rgb(153, 102, 255)', // Fallback color
+          backgroundColor: benchmarkColors[name] ? benchmarkColors[name].replace('rgb', 'rgba').replace(')', ', 0.5)') : 'rgba(153, 102, 255, 0.5)',
+          tension: 0.1,
+          yAxisID: 'y', // Benchmarks also use the primary Y-axis for value
+          borderDash: [5, 5], // Dotted line for benchmarks
+          pointRadius: 0, // Remove point markers for benchmarks
+        })) : []),
+      ],
+    };
+  }, [backtestResults]);
 
   const chartOptions = useMemo(() => ({
     responsive: true,
@@ -317,7 +365,7 @@ function Backtest() {
       </ListItem>
   )), [savedBacktests, handleLoadBacktestResult, handleDeleteBacktestResult]);
 
-  const transactionsTableRows = useMemo(() => backtestResults?.transactions.map((tx, index) => (
+  const transactionsTableRows = useMemo(() => (backtestResults?.transactions || []).map((tx, index) => (
     <TableRow key={index}>
       <TableCell>{new Date(tx.transaction_date).toLocaleDateString()}</TableCell>
       <TableCell>{tx.asset.name}</TableCell>
@@ -325,8 +373,6 @@ function Backtest() {
       <TableCell align="right">{tx.quantity?.toFixed(2)}</TableCell>
       <TableCell align="right">₩{tx.price?.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}</TableCell>
       <TableCell align="right">₩{(tx.quantity * tx.price)?.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</TableCell>
-      <TableCell align="right">₩{tx.cash_balance?.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</TableCell>
-      <TableCell align="right">₩{tx.portfolio_value?.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</TableCell>
     </TableRow>
   )), [backtestResults]);
 
@@ -403,9 +449,9 @@ function Backtest() {
       {error && <Alert severity="error" sx={{ mt: 2 }}>Error: {error}</Alert>}
 
       <Box sx={{ mt: 4 }}>
-        <Typography variant="h6" gutterBottom>Saved Backtest Results</Typography>
+        <Typography variant="h6" gutterBottom>Processed Backtest</Typography>
         {savedBacktests.length === 0 ? (
-          <Typography>No saved backtest results yet.</Typography>
+          <Typography>No processed backtest results yet.</Typography>
         ) : (
           <List component={Paper}>
             {savedBacktestsItems}
@@ -415,23 +461,7 @@ function Backtest() {
 
       {backtestResults && (
         <Box sx={{ mt: 4 }}>
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-            <Typography variant="h6">Backtest Results for {backtestResults.strategy?.name}:</Typography>
-            <Button
-              variant="contained"
-              color="primary"
-              onClick={() => setShowSaveDialog(true)}
-              disabled={!backtestResults}
-            >
-              Save Results
-            </Button>
-          </Box>
-
-          <SaveBacktestResultDialog
-            open={showSaveDialog}
-            onClose={() => setShowSaveDialog(false)}
-            onSave={handleSaveBacktestResult}
-          />
+          <Typography variant="h6">Backtest Results for {backtestResults.strategy?.name}:</Typography>
           <TableContainer component={Paper} sx={{ mt: 2, mb: 3 }}>
             <Table size="small">
               <TableHead>
@@ -447,7 +477,7 @@ function Backtest() {
                 <TableRow>
                   <TableCell align="right">₩{backtestResults.final_capital?.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</TableCell>
                   <TableCell align="right">
-                    <MuiTooltip title="Annualized Return = ( (Final Capital / Initial Capital)^(252 / Number of Trading Days) ) - 1">
+                    <MuiTooltip title="Annualized Return = ( (Final Capital / Initial Capital)^(1 / Years) ) - 1">
                       <span>{(backtestResults.annualized_return * 100)?.toFixed(2)}%</span>
                     </MuiTooltip>
                   </TableCell>
@@ -489,8 +519,6 @@ function Backtest() {
                   <TableCell align="right">Quantity</TableCell>
                   <TableCell align="right">Price</TableCell>
                   <TableCell align="right">Amount</TableCell>
-                  <TableCell align="right">Cash Balance</TableCell>
-                  <TableCell align="right">Portfolio Value</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -516,40 +544,6 @@ function Backtest() {
   );
 }
 
-function SaveBacktestResultDialog({ open, onClose, onSave }) {
-  const [dialogResultName, setDialogResultName] = useState('');
 
-  useEffect(() => {
-    if (open) {
-      setDialogResultName(''); // Clear previous name when opening
-    }
-  }, [open]);
-
-  const handleInternalSave = () => {
-    onSave(dialogResultName); // Pass internal state to parent's onSave
-  };
-
-  return (
-    <MuiDialog open={open} onClose={onClose}>
-      <MuiDialogTitle>Save Backtest Results</MuiDialogTitle>
-      <MuiDialogContent>
-        <TextField
-          autoFocus
-          margin="dense"
-          label="Result Name"
-          type="text"
-          fullWidth
-          variant="standard"
-          value={dialogResultName}
-          onChange={(e) => setDialogResultName(e.target.value)}
-        />
-      </MuiDialogContent>
-      <MuiDialogActions>
-        <Button onClick={onClose}>Cancel</Button>
-        <Button onClick={handleInternalSave} disabled={!dialogResultName.trim()}>Save</Button>
-      </MuiDialogActions>
-    </MuiDialog>
-  );
-}
 
 export default Backtest;

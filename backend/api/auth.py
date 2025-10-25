@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from .. import hantoo_auth
+from core.api_clients.hantoo_client import HantooClient
 
 router = APIRouter(
     prefix="/api/auth",

@@ -40,13 +40,16 @@ def get_historical_data(symbol: str, start_date: str, end_date: str) -> pd.DataF
     """
     Fetches historical stock data for a given symbol and date range using FinanceDataReader.
     """
+    print(f"[DEBUG] get_historical_data called for symbol: {symbol}, start: {start_date}, end: {end_date}")
     try:
         data = fdr.DataReader(symbol, start=start_date, end=end_date)
         if data.empty:
-            print(f"Warning: No data fetched for {symbol} from {start_date} to {end_date} using FinanceDataReader")
+            print(f"[DEBUG] Warning: No data fetched for {symbol} from {start_date} to {end_date} using FinanceDataReader. Data is empty.")
+        else:
+            print(f"[DEBUG] Successfully fetched data for {symbol}. Head:\n{data.head()}")
         return data
     except Exception as e:
-        print(f"Error fetching historical data for {symbol} using FinanceDataReader: {e}")
+        print(f"[DEBUG] Error fetching historical data for {symbol} using FinanceDataReader: {e}")
         return pd.DataFrame()
 
 def get_stock_data(symbol: str, start_date: str, end_date: str = None) -> pd.DataFrame:
@@ -64,6 +67,41 @@ def get_stock_data(symbol: str, start_date: str, end_date: str = None) -> pd.Dat
     except Exception as e:
         print(f"Error fetching data for {symbol} from {start_date} to {end_date}: {e}")
         return pd.DataFrame()
+
+async def get_benchmark_historical_data(start_date: str, end_date: str) -> Dict[str, pd.DataFrame]:
+    benchmark_dfs = {}
+
+    # S&P 500 - Use FinanceDataReader
+    try:
+        sp500_df = get_historical_data("S&P500", start_date, end_date)
+        if not sp500_df.empty:
+            benchmark_dfs["S&P 500"] = sp500_df
+        else:
+            print("Warning: No historical data for S&P 500 using FinanceDataReader.")
+    except Exception as e:
+        print(f"Error fetching S&P 500 data using FinanceDataReader: {e}")
+
+    # KOSPI (KS11) - Use FinanceDataReader
+    try:
+        kospi_df = get_historical_data("KS11", start_date, end_date)
+        if not kospi_df.empty:
+            benchmark_dfs["KOSPI"] = kospi_df
+        else:
+            print("Warning: No historical data for KOSPI (KS11).")
+    except Exception as e:
+        print(f"Error fetching KOSPI (KS11) data: {e}")
+
+    # Nikkei 225 (N225) - Use FinanceDataReader
+    try:
+        nikkei_df = get_historical_data("N225", start_date, end_date)
+        if not nikkei_df.empty:
+            benchmark_dfs["Nikkei 225"] = nikkei_df
+        else:
+            print("Warning: No historical data for Nikkei 225 (N225).")
+    except Exception as e:
+        print(f"Error fetching Nikkei 225 (N225) data: {e}")
+
+    return benchmark_dfs
 
 from dotenv import load_dotenv
 
@@ -124,10 +162,28 @@ def get_fred_yield_curve(start_date: str, end_date: str) -> pd.DataFrame:
         print(f"Error fetching or processing FRED data: {e}")
         return pd.DataFrame()
 
+def _clean_and_convert_to_float(value):
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        value = value.replace(',', '')
+        if value.strip() == '-' or value.strip() == '':
+            return 0.0
+        try:
+            return float(value)
+        except ValueError:
+            return 0.0
+    return 0.0
+
 def get_korean_fundamental_data(symbol: str, year: int, quarter: int, re_evaluation_frequency: str) -> Dict:
     """
     Fetches Korean fundamental data for a given symbol and period using OpenDartReader.
     """
+    # Load .env file from the backend directory
+    backend_dir = os.path.dirname(os.path.abspath(__file__))
+    dotenv_path = os.path.join(backend_dir, '.env')
+    load_dotenv(dotenv_path=dotenv_path)
+    
     api_key = os.getenv("OPENDART_API_KEY")
     if not api_key:
         print("Error: OPENDART_API_KEY not found in .env file.")
@@ -161,18 +217,17 @@ def get_korean_fundamental_data(symbol: str, year: int, quarter: int, re_evaluat
             # print(f"Warning: No financial statements found for {symbol} ({corp_code}) in {year} Q{quarter}.")
             return {}
 
-
         # Extract relevant data
-        current_assets_str = finstate[finstate['account_nm'] == '유동자산']['thstrm_amount'].iloc[0] if '유동자산' in finstate['account_nm'].values else '0'
-        total_liabilities_str = finstate[finstate['account_nm'] == '부채총계']['thstrm_amount'].iloc[0] if '부채총계' in finstate['account_nm'].values else '0'
-        net_income_str = finstate[finstate['account_nm'] == '당기순이익']['thstrm_amount'].iloc[0] if '당기순이익' in finstate['account_nm'].values else '0'
-        eps_str = finstate[finstate['account_nm'] == '주당순이익']['thstrm_amount'].iloc[0] if '주당순이익' in finstate['account_nm'].values else '0'
+        current_assets_str = finstate.loc[finstate['account_nm'] == '유동자산', 'thstrm_amount'].iloc[0] if '유동자산' in finstate['account_nm'].values else '0'
+        total_liabilities_str = finstate.loc[finstate['account_nm'] == '부채총계', 'thstrm_amount'].iloc[0] if '부채총계' in finstate['account_nm'].values else '0'
+        net_income_str = finstate.loc[finstate['account_nm'] == '당기순이익', 'thstrm_amount'].iloc[0] if '당기순이익' in finstate['account_nm'].values else '0'
+        eps_str = finstate.loc[finstate['account_nm'] == '주당순이익', 'thstrm_amount'].iloc[0] if '주당순이익' in finstate['account_nm'].values else '0'
 
         return {
-            "current_assets": float(current_assets_str.replace(',', '') or 0),
-            "total_liabilities": float(total_liabilities_str.replace(',', '') or 0),
-            "net_income": float(net_income_str.replace(',', '') or 0),
-            "eps": float(eps_str.replace(',', '') or 0),
+            "current_assets": _clean_and_convert_to_float(current_assets_str),
+            "total_liabilities": _clean_and_convert_to_float(total_liabilities_str),
+            "net_income": _clean_and_convert_to_float(net_income_str),
+            "eps": _clean_and_convert_to_float(eps_str),
             # Market Cap will be added later
         }
 
