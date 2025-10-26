@@ -2,8 +2,10 @@
 ttnw/*
 logs/*
 install/*
+
 KIS*
-celerybeat-schedule
+opendart*
+
 *.log
 
 # Ignore environment variables files

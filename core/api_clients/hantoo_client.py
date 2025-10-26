@@ -1,0 +1,230 @@
+
+import os
+import requests
+import json
+from datetime import datetime, timedelta
+
+
+class HantooClient:
+    """
+    A client for interacting with the Korea Investment & Securities (KIS) API.
+    Handles authentication, token management, and provides methods for various API calls.
+    """
+
+    def __init__(self, broker_provider: str, broker_account_no: str):
+        if 'hantoo' not in broker_provider:
+            raise ValueError(f"Unsupported broker provider: {broker_provider}")
+
+        self.is_paper = 'vps' in broker_provider
+        if self.is_paper:
+            self.base_url = "https://openapivts.koreainvestment.com:29443"
+        else: # Assumes production
+            self.base_url = "https://openapi.koreainvestment.com:9443"
+        
+        self.app_key = os.getenv("HANTOO_APP_KEY")
+        self.app_secret = os.getenv("HANTOO_APP_SECRET")
+        self.account_no = broker_account_no
+
+        if not all([self.app_key, self.app_secret, self.account_no]):
+            raise ValueError("Hantoo API credentials or account number are not set.")
+
+        self.access_token = None
+        self.token_expires_at = None
+        self._authenticate()
+
+    def _authenticate(self):
+        """ Fetches and stores a new access token. """
+        path = "/oauth2/tokenP"
+        url = f"{self.base_url}{path}"
+        headers = {"content-type": "application/json"}
+        body = {
+            "grant_type": "client_credentials",
+            "appkey": self.app_key,
+            "appsecret": self.app_secret
+        }
+        
+        try:
+            res = requests.post(url, headers=headers, data=json.dumps(body))
+            res.raise_for_status() # Raise an exception for bad status codes
+            data = res.json()
+            self.access_token = f"Bearer {data['access_token']}"
+            # Set expiry time with a small buffer
+            self.token_expires_at = datetime.now() + timedelta(seconds=data['expires_in'] - 60)
+            print("Hantoo API authentication successful.")
+        except requests.exceptions.RequestException as e:
+            print(f"Hantoo API authentication failed: {e}")
+            raise
+
+    def get_ws_approval_key(self):
+        """ Fetches a one-time approval key for WebSocket connection. """ 
+        path = "/oauth2/Approval"
+        url = f"{self.base_url}{path}"
+        headers = {"content-type": "application/json"}
+        body = {
+            "grant_type": "client_credentials",
+            "appkey": self.app_key,
+            "secretkey": self.app_secret,
+        }
+        try:
+            res = requests.post(url, headers=headers, data=json.dumps(body))
+            res.raise_for_status()
+            data = res.json()
+            return data.get("approval_key")
+        except requests.exceptions.RequestException as e:
+            print(f"Hantoo API WS approval key failed: {e}")
+            raise
+
+    def _get_headers(self, tr_id: str) -> dict:
+        """ Checks token validity and returns required headers for API calls. """
+        if self.token_expires_at is None or datetime.now() >= self.token_expires_at:
+            print("Access token expired. Re-authenticating...")
+            self._authenticate()
+        
+        return {
+            "content-type": "application/json; charset=utf-8",
+            "authorization": self.access_token,
+            "appkey": self.app_key,
+            "appsecret": self.app_secret,
+            "tr_id": tr_id,
+            "custtype": "P"
+        }
+
+    # --- Methods to be implemented ---
+
+    def get_current_price(self, symbol: str) -> float:
+        """ Fetches the current market price of a stock. """
+        path = "/uapi/domestic-stock/v1/quotations/inquire-price"
+        url = f"{self.base_url}{path}"
+        
+        tr_id = "FHKST01010100"
+
+        headers = self._get_headers(tr_id)
+        params = {
+            "FID_COND_MRKT_DIV_CODE": "J",  # J: KRX, NX: NXT, UN: 통합
+            "FID_INPUT_ISCD": symbol,
+        }
+
+        try:
+            res = requests.get(url, headers=headers, params=params)
+            res.raise_for_status()  # HTTP 에러 발생 시 예외 발생
+            
+            # 응답 본문을 먼저 확인
+            response_data = res.json()
+            
+            # 실제 데이터 파싱
+            data = response_data['output']
+            price = float(data['stck_prpr'])
+            return price
+
+        except requests.exceptions.RequestException as e:
+            print(f"Error fetching price for {symbol}: {e}")
+            if e.response is not None:
+                print(f"Response Body: {e.response.text}")
+            return None
+        except (KeyError, ValueError, json.JSONDecodeError) as e:
+            print(f"Error parsing price data for {symbol}: {e}")
+            # res가 정의되어 있는 경우, 응답 텍스트를 출력
+            if 'res' in locals() and hasattr(res, 'text'):
+                print(f"Hantoo API Response: {res.text}")
+            return None
+
+    def get_balance(self) -> dict:
+        """ Fetches the current account balance and holdings. """
+        tr_id = "VTTC8434R" if self.is_paper else "TTTC8434R"
+        path = "/uapi/domestic-stock/v1/trading/inquire-balance"
+        url = f"{self.base_url}{path}"
+        headers = self._get_headers(tr_id)
+        
+        acc_no, acc_suffix = self.account_no.split('-')
+
+        params = {
+            "CANO": acc_no,
+            "ACNT_PRDT_CD": acc_suffix,
+            "AFHR_FLPR_YN": "N",
+            "OFL_YN": "",
+            "INQR_DVSN": "01",
+            "UNPR_DVSN": "01",
+            "FUND_STTL_ICLD_YN": "N",
+            "FNCG_AMT_AUTO_RDPT_YN": "N",
+            "PRCS_DVSN": "00",
+            "CTX_AREA_FK100": "",
+            "CTX_AREA_NK100": ""
+        }
+
+        try:
+            res = requests.get(url, headers=headers, params=params)
+            res.raise_for_status()
+            
+            response_data = res.json()
+
+            # prts_amt: 평가금액, dnca_tot_amt: 예수금총금액
+            total_value = float(response_data['output2'][0]['tot_evlu_amt'])
+            cash = float(response_data['output2'][0]['dnca_tot_amt'])
+
+            holdings = []
+            for item in response_data['output1']:
+                holdings.append({
+                    'symbol': item['pdno'],
+                    'name': item['prdt_name'],
+                    'quantity': float(item['hldg_qty']),
+                    'average_price': float(item['pchs_avg_pric']),
+                    'current_price': float(item['prpr']),
+                    'eval_amount': float(item['evlu_amt'])
+                })
+
+            return {'total_value': total_value, 'cash': cash, 'holdings': holdings}
+
+        except requests.exceptions.RequestException as e:
+            print(f"Error fetching balance: {e}")
+            if e.response is not None:
+                print(f"Response Body: {e.response.text}")
+            return None
+        except (KeyError, ValueError, IndexError, json.JSONDecodeError) as e:
+            print(f"Error parsing balance data: {e}")
+            if 'res' in locals() and hasattr(res, 'text'):
+                print(f"Hantoo API Response: {res.text}")
+            return None
+
+    def place_order(self, symbol: str, quantity: int, price: int, side: str) -> dict:
+        """ Places a new order. `side` can be 'buy' or 'sell'. """
+        if side.lower() not in ['buy', 'sell']:
+            raise ValueError("side must be either 'buy' or 'sell'")
+
+        # Determine TR_ID based on side and environment
+        tr_id_prefix = "VTT" if self.is_paper else "TTT"
+        tr_id_suffix = "C0802U" if side.lower() == 'buy' else "C0801U"
+        tr_id = tr_id_prefix + tr_id_suffix
+
+        path = "/uapi/domestic-stock/v1/trading/order-cash"
+        url = f"{self.base_url}{path}"
+        headers = self._get_headers(tr_id)
+
+        # The account number is split for the API call
+        acc_no, acc_suffix = self.account_no.split('-')
+
+        body = {
+            "CANO": acc_no,
+            "ACNT_PRDT_CD": acc_suffix,
+            "PDNO": symbol,
+            "ORD_DVSN": "01",  # 01: 지정가, 00: 시장가
+            "ORD_QTY": str(quantity),
+            "ORD_UNPR": str(price),
+        }
+
+        try:
+            res = requests.post(url, headers=headers, data=json.dumps(body))
+            res.raise_for_status()
+            data = res.json()
+
+            if data.get('rt_cd') == '0':
+                return {'status': 'success', 'order_id': data.get('output', {}).get('ODNO'), 'message': data.get('msg1')}
+            else:
+                return {'status': 'failure', 'message': data.get('msg1', 'Unknown error')}
+
+        except requests.exceptions.RequestException as e:
+            print(f"Error placing order for {symbol}: {e}")
+            return {'status': 'error', 'message': str(e)}
+        except (KeyError, ValueError) as e:
+            print(f"Error parsing order response for {symbol}: {e}")
+            return {'status': 'error', 'message': str(e)}
+
