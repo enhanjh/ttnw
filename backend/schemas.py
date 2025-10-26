@@ -74,18 +74,27 @@ class VirtualTransaction(VirtualTransactionBase):
 
 class PortfolioBase(BaseModel):
     name: str
+    manager: Optional[str] = None
+    environment: str = 'live'
+    status: str = 'active'
+    broker_provider: Optional[str] = None
+    broker_account_no: Optional[str] = None
+    strategy_id: Optional[PydanticObjectId] = None
+
 
 class PortfolioCreate(PortfolioBase):
     pass
 
+
 class Portfolio(PortfolioBase):
-    id: PydanticObjectId = Field() # Changed back to PydanticObjectId
+    id: PydanticObjectId
     created_at: datetime
+    strategy: Optional['Strategy'] = None
 
     model_config = ConfigDict(
         from_attributes=True,
         arbitrary_types_allowed=True,
-        json_encoders={ObjectId: str} # Add custom encoder
+        json_encoders={ObjectId: str}
     )
 
 

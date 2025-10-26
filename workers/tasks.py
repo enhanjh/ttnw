@@ -70,7 +70,7 @@ def run_backtest_task(
             # 1. Create a Virtual Portfolio and a placeholder BacktestResult
             virtual_portfolio = models.Portfolio(
                 name=f"VP: {strategy_doc.name[:25]} ({datetime.now().strftime('%m/%d %H:%M')})",
-                is_virtual=True
+                environment="backtest"
             )
             await virtual_portfolio.insert()
 

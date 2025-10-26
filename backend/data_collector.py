@@ -40,13 +40,8 @@ def get_historical_data(symbol: str, start_date: str, end_date: str) -> pd.DataF
     """
     Fetches historical stock data for a given symbol and date range using FinanceDataReader.
     """
-    print(f"[DEBUG] get_historical_data called for symbol: {symbol}, start: {start_date}, end: {end_date}")
     try:
         data = fdr.DataReader(symbol, start=start_date, end=end_date)
-        if data.empty:
-            print(f"[DEBUG] Warning: No data fetched for {symbol} from {start_date} to {end_date} using FinanceDataReader. Data is empty.")
-        else:
-            print(f"[DEBUG] Successfully fetched data for {symbol}. Head:\n{data.head()}")
         return data
     except Exception as e:
         print(f"[DEBUG] Error fetching historical data for {symbol} using FinanceDataReader: {e}")

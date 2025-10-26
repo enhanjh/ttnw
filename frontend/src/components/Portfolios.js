@@ -1,169 +1,248 @@
-import React, { useState, useEffect } from 'react';
-import { TextField, Button, List, ListItem, ListItemText, Paper, IconButton, Box, Typography } from '@mui/material';
+import React, { useState, useEffect, useCallback } from 'react';
+import {
+    TextField, Button, List, ListItem, ListItemText, Paper, IconButton, Box, Typography,
+    Select, MenuItem, InputLabel, FormControl, Grid, Dialog, DialogTitle, DialogContent, DialogActions
+} from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
 import EditIcon from '@mui/icons-material/Edit';
-import SaveIcon from '@mui/icons-material/Save';
-import CancelIcon from '@mui/icons-material/Cancel';
 
 import { fetchApi } from '../api';
 
+const initialPortfolioFormState = {
+    name: '',
+    manager: '',
+    environment: 'live',
+    status: 'active',
+    broker_provider: '',
+    broker_account_no: '',
+    strategy_id: '',
+};
+
 function Portfolios() {
-  const [portfolios, setPortfolios] = useState([]);
-  const [newPortfolioName, setNewPortfolioName] = useState('');
-  const [editingPortfolioId, setEditingPortfolioId] = useState(null);
-  const [editedPortfolioName, setEditedPortfolioName] = useState('');
+    const [portfolios, setPortfolios] = useState([]);
+    const [strategies, setStrategies] = useState([]);
+    const [newPortfolio, setNewPortfolio] = useState(initialPortfolioFormState);
+    const [editingPortfolio, setEditingPortfolio] = useState(null);
+    const [isCreateFormVisible, setIsCreateFormVisible] = useState(false);
 
+    const fetchPortfolios = useCallback(async () => {
+        try {
+            const data = await fetchApi('/api/portfolios/');
+            setPortfolios(data);
+        } catch (error) {
+            console.error("Error fetching portfolios:", error);
+        }
+    }, []);
 
-  useEffect(() => {
-    fetchPortfolios();
-  }, []);
+    const fetchStrategies = useCallback(async () => {
+        try {
+            const data = await fetchApi('/api/strategies/');
+            setStrategies(data);
+        } catch (error) {
+            console.error("Error fetching strategies:", error);
+        }
+    }, []);
 
-  const fetchPortfolios = async () => {
-    try {
-      const data = await fetchApi('/api/portfolios/');
-      setPortfolios(data);
-    } catch (error) {
-      console.error("Error fetching portfolios:", error);
-    }
-  };
+    useEffect(() => {
+        fetchPortfolios();
+        fetchStrategies();
+    }, [fetchPortfolios, fetchStrategies]);
 
-  const handleInputChange = (e) => {
-    setNewPortfolioName(e.target.value);
-  };
+    const handleInputChange = (e) => {
+        const { name, value } = e.target;
+        setNewPortfolio(prev => ({ ...prev, [name]: value }));
+    };
+    
+    const handleEditingChange = (e) => {
+        const { name, value } = e.target;
+        setEditingPortfolio(prev => ({ ...prev, [name]: value }));
+    };
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    if (!newPortfolioName) return;
+    const handleSubmit = async (e) => {
+        e.preventDefault();
+        if (!newPortfolio.name) return;
 
-    try {
-      await fetchApi('/api/portfolios/', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ name: newPortfolioName }),
-      });
-      setNewPortfolioName('');
-      fetchPortfolios(); // Refresh the list
-      alert("Portfolio added successfully!");
-    } catch (error) {
-      console.error("Error adding portfolio:", error);
-      alert(`Error adding portfolio: ${error.message}`);
-    }
-  };
+        const payload = { ...newPortfolio };
+        if (!payload.strategy_id) {
+            delete payload.strategy_id;
+        }
 
-  const handleDelete = async (id) => {
-    if (window.confirm("Are you sure you want to delete this portfolio?")) {
-      try {
-        await fetchApi(`/api/portfolios/${id}`, {
-          method: 'DELETE',
+        try {
+            await fetchApi('/api/portfolios/', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+            });
+            setNewPortfolio(initialPortfolioFormState);
+            fetchPortfolios();
+            setIsCreateFormVisible(false);
+            alert("Portfolio added successfully!");
+        } catch (error) {
+            console.error("Error adding portfolio:", error);
+            alert(`Error adding portfolio: ${error.message}`);
+        }
+    };
+
+    const handleDelete = async (id) => {
+        if (window.confirm("Are you sure you want to delete this portfolio?")) {
+            try {
+                await fetchApi(`/api/portfolios/${id}`, { method: 'DELETE' });
+                fetchPortfolios();
+                alert("Portfolio deleted successfully!");
+            } catch (error) {
+                console.error("Error deleting portfolio:", error);
+                alert(`Error deleting portfolio: ${error.message}`);
+            }
+        }
+    };
+
+    const handleEdit = (portfolio) => {
+        setEditingPortfolio({
+            ...portfolio,
+            strategy_id: portfolio.strategy ? portfolio.strategy.id : ''
         });
-        fetchPortfolios(); // Refresh the list
-        alert("Portfolio deleted successfully!");
+    };
 
-      } catch (error) {
-        console.error("Error deleting portfolio:", error);
-        alert(`Error deleting portfolio: ${error.message}`);
-      }
-    }
-  };
+    const handleSave = async (id) => {
+        if (!editingPortfolio) return;
+        try {
+            const updatePayload = { ...editingPortfolio };
+            delete updatePayload.id;
+            delete updatePayload.created_at;
+            delete updatePayload.strategy; 
+            
+            if (!updatePayload.strategy_id) {
+                updatePayload.strategy_id = null;
+            }
 
-  const handleEdit = (portfolio) => {
-    setEditingPortfolioId(portfolio.id);
-    setEditedPortfolioName(portfolio.name);
-  };
+            await fetchApi(`/api/portfolios/${id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(updatePayload),
+            });
+            setEditingPortfolio(null);
+            fetchPortfolios();
+            alert("Portfolio updated successfully!");
+        } catch (error) {
+            console.error("Error updating portfolio:", error);
+            alert(`Error updating portfolio: ${error.message}`);
+        }
+    };
 
-  const handleSave = async (id) => {
-    try {
-      await fetchApi(`/api/portfolios/${id}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ name: editedPortfolioName }),
-      });
-      setEditingPortfolioId(null);
-      setEditedPortfolioName('');
-      fetchPortfolios(); // Refresh the list
-      alert("Portfolio updated successfully!");
-    } catch (error) {
-      console.error("Error updating portfolio:", error);
-      alert(`Error updating portfolio: ${error.message}`);
-    }
-  };
+    const handleCancelEdit = () => {
+        setEditingPortfolio(null);
+    };
 
-  const handleCancelEdit = () => {
-    setEditingPortfolioId(null);
-    setEditedPortfolioName('');
-  };
+    const renderPortfolioForm = (portfolio, handleChange) => (
+        <Grid container spacing={2} sx={{mt: 1}}>
+            <Grid item xs={12} sm={6}>
+                <TextField label="Portfolio Name" name="name" value={portfolio.name} onChange={handleChange} required fullWidth />
+            </Grid>
+            <Grid item xs={12} sm={6}>
+                <TextField label="Manager" name="manager" value={portfolio.manager} onChange={handleChange} fullWidth />
+            </Grid>
+            <Grid item xs={12} sm={6}>
+                <FormControl fullWidth>
+                    <InputLabel>Environment</InputLabel>
+                    <Select name="environment" value={portfolio.environment} label="Environment" onChange={handleChange}>
+                        <MenuItem value="live">Live</MenuItem>
+                        <MenuItem value="backtest">Backtest</MenuItem>
+                    </Select>
+                </FormControl>
+            </Grid>
+            <Grid item xs={12} sm={6}>
+                <FormControl fullWidth>
+                    <InputLabel>Status</InputLabel>
+                    <Select name="status" value={portfolio.status} label="Status" onChange={handleChange}>
+                        <MenuItem value="active">Active</MenuItem>
+                        <MenuItem value="inactive">Inactive</MenuItem>
+                    </Select>
+                </FormControl>
+            </Grid>
+            <Grid item xs={12} sm={6}>
+                <TextField label="Broker Provider" name="broker_provider" value={portfolio.broker_provider || ''} onChange={handleChange} fullWidth />
+            </Grid>
+            <Grid item xs={12} sm={6}>
+                <TextField label="Broker Account No" name="broker_account_no" value={portfolio.broker_account_no || ''} onChange={handleChange} fullWidth />
+            </Grid>
+            <Grid item xs={12}>
+                <FormControl fullWidth>
+                    <InputLabel>Strategy</InputLabel>
+                    <Select name="strategy_id" value={portfolio.strategy_id || ''} label="Strategy" onChange={handleChange}>
+                        <MenuItem value=""><em>None</em></MenuItem>
+                        {strategies.map(s => <MenuItem key={s.id} value={s.id}>{s.name}</MenuItem>)}
+                    </Select>
+                </FormControl>
+            </Grid>
+        </Grid>
+    );
 
+    return (
+        <Box>
+            <Typography variant="h5" gutterBottom>Manage Portfolios</Typography>
+            
+            <Button variant="contained" color="primary" onClick={() => setIsCreateFormVisible(true)} sx={{ mb: 2 }}>
+                Create New Portfolio
+            </Button>
 
+            <Dialog open={isCreateFormVisible} onClose={() => setIsCreateFormVisible(false)} maxWidth="md" fullWidth>
+                <DialogTitle>Create New Portfolio</DialogTitle>
+                <form onSubmit={handleSubmit}>
+                    <DialogContent>
+                        {renderPortfolioForm(newPortfolio, handleInputChange)}
+                    </DialogContent>
+                    <DialogActions>
+                        <Button onClick={() => setIsCreateFormVisible(false)}>Cancel</Button>
+                        <Button type="submit" color="primary">Create</Button>
+                    </DialogActions>
+                </form>
+            </Dialog>
 
-  return (
-    <Box>
-      <Typography variant="h5" gutterBottom>Manage Portfolios</Typography>
-
-      <Box>
-        <Typography variant="h6">Create New Portfolio</Typography>
-        <form onSubmit={handleSubmit} style={{ display: 'flex', gap: '10px', marginBottom: '20px' }}>
-          <TextField
-            label="Portfolio Name"
-            variant="outlined"
-            value={newPortfolioName}
-            onChange={handleInputChange}
-            required
-            fullWidth
-          />
-          <Button type="submit" variant="contained" color="primary">
-            Create Portfolio
-          </Button>
-        </form>
-
-        <Typography variant="h6">Existing Portfolios</Typography>
-        <List component={Paper} sx={{ width: '100%', bgcolor: 'background.paper' }}>
-          {portfolios.map((portfolio) => (
-            <ListItem
-              key={portfolio.id.toString()}
-              secondaryAction={
-                <>
-                  {editingPortfolioId === portfolio.id ? (
+            <Dialog open={!!editingPortfolio} onClose={handleCancelEdit} maxWidth="md" fullWidth>
+                <DialogTitle>Edit Portfolio</DialogTitle>
+                {editingPortfolio && (
                     <>
-                      <IconButton edge="end" aria-label="save" onClick={() => handleSave(portfolio.id)}>
-                        <SaveIcon />
-                      </IconButton>
-                      <IconButton edge="end" aria-label="cancel" onClick={handleCancelEdit}>
-                        <CancelIcon />
-                      </IconButton>
+                        <DialogContent>
+                            {renderPortfolioForm(editingPortfolio, handleEditingChange)}
+                        </DialogContent>
+                        <DialogActions>
+                            <Button onClick={handleCancelEdit}>Cancel</Button>
+                            <Button onClick={() => handleSave(editingPortfolio.id)} color="primary">Save</Button>
+                        </DialogActions>
                     </>
-                  ) : (
-                    <>
-                      <IconButton edge="end" aria-label="edit" onClick={() => handleEdit(portfolio)}>
-                        <EditIcon />
-                      </IconButton>
-                      <IconButton edge="end" aria-label="delete" onClick={() => handleDelete(portfolio.id)}>
-                        <DeleteIcon />
-                      </IconButton>
-                    </>
-                  )}
-                </>
-              }
-            >
-              {editingPortfolioId === portfolio.id ? (
-                <TextField
-                  value={editedPortfolioName}
-                  onChange={(e) => setEditedPortfolioName(e.target.value)}
-                  variant="standard"
-                  fullWidth
-                />
-              ) : (
-                <ListItemText primary={portfolio.name} secondary={`Created: ${new Date(portfolio.created_at).toLocaleDateString()}`} />
-              )}
-            </ListItem>
-          ))}
-        </List>
-      </Box>
-    </Box>
-  );
+                )}
+            </Dialog>
+
+            <Typography variant="h6" sx={{mt: 2}}>Existing Portfolios</Typography>
+            <List component={Paper}>
+                {portfolios.map((portfolio) => (
+                    <ListItem key={portfolio.id} divider secondaryAction={
+                        <>
+                            <IconButton edge="end" aria-label="edit" onClick={() => handleEdit(portfolio)}><EditIcon /></IconButton>
+                            <IconButton edge="end" aria-label="delete" onClick={() => handleDelete(portfolio.id)}><DeleteIcon /></IconButton>
+                        </>
+                    }>
+                        <ListItemText 
+                            primary={portfolio.name}
+                            secondary={
+                                <React.Fragment>
+                                    <Typography component="span" variant="body2" color="text.primary" sx={{ display: 'block' }}>
+                                        Manager: {portfolio.manager || 'N/A'} | Status: {portfolio.status} | Env: {portfolio.environment}
+                                    </Typography>
+                                    <Typography component="span" variant="body2" color="text.secondary" sx={{ display: 'block' }}>
+                                        Strategy: {portfolio.strategy ? portfolio.strategy.name : 'None'}
+                                    </Typography>
+                                    <Typography component="span" variant="body2" color="text.secondary" sx={{ display: 'block' }}>
+                                        Broker: {portfolio.broker_provider || 'N/A'} - {portfolio.broker_account_no || 'N/A'}
+                                    </Typography>
+                                </React.Fragment>
+                            }
+                        />
+                    </ListItem>
+                ))}
+            </List>
+        </Box>
+    );
 }
 
 export default Portfolios;

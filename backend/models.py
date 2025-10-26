@@ -7,8 +7,12 @@ from . import schemas
 
 class Portfolio(Document):
     name: str = Field(..., max_length=50)
+    manager: Optional[str] = Field(None, max_length=50)
+    environment: str = Field("live", max_length=50) # 'live' or 'backtest'
+    status: str = Field("active", max_length=50) # 'active' or 'inactive'
     broker_provider: Optional[str] = Field(None, max_length=50) # e.g., 'hantoo_vps', 'hantoo_prod'
     broker_account_no: Optional[str] = Field(None, max_length=50)
+    strategy: Optional[Link['Strategy']] = None
     created_at: datetime = Field(default_factory=datetime.now)
 
     class Settings:

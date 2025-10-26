@@ -24,6 +24,7 @@ async def create_backtest_result(request: schemas.BacktestSaveRequest):
     portfolio_name_suffix = f"{request.name[:20]} {datetime.now().strftime('%Y%m%d%H%M%S')}"
     virtual_portfolio = models.Portfolio(
         name=f"VP {portfolio_name_suffix}",
+        environment="backtest",
         # Other portfolio details can be added if needed
     )
     await virtual_portfolio.insert()
