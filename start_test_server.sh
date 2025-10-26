@@ -31,7 +31,7 @@ echo "Starting backend server... Logs are in logs/backend.log"
     # Activate venv from the root directory
     source ttnw/bin/activate && \
     # Run uvicorn from the root, specifying the app as a module path
-    uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir backend
+    uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir backend --log-level debug
 ) > logs/backend.log 2>&1 &
 BACKEND_PID=$!
 

@@ -1,10 +1,15 @@
 import React, { useState, useEffect, useCallback, memo, useMemo } from 'react';
-import { TextField, Button, Select, MenuItem, InputLabel, FormControl, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper, IconButton, Box, Typography } from '@mui/material';
+import {
+  TextField, Button, Select, MenuItem, InputLabel, FormControl, Table, TableBody,
+  TableCell, TableContainer, TableHead, TableRow, Paper, IconButton, Box, Typography,
+  Dialog, DialogActions, DialogContent, DialogTitle, Checkbox, CircularProgress
+} from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
 import EditIcon from '@mui/icons-material/Edit';
 import SaveIcon from '@mui/icons-material/Save';
 import CancelIcon from '@mui/icons-material/Cancel';
 import AddIcon from '@mui/icons-material/Add';
+import SystemUpdateAltIcon from '@mui/icons-material/SystemUpdateAlt';
 import { fetchApi } from '../api';
 
 // A new component for the row that can be in "edit", "add", or "view" mode.
@@ -128,6 +133,170 @@ const EditableTransactionRow = memo(function EditableTransactionRow({
   );
 });
 
+// New Component: Modal for importing transactions from a broker
+function BrokerTransactionImportModal({ open, onClose, portfolioId, assets, onImportSuccess }) {
+  const [brokerTransactions, setBrokerTransactions] = useState([]);
+  const [selected, setSelected] = useState([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState('');
+  
+  // Dates state
+  const today = new Date().toISOString().slice(0, 10);
+  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const [startDate, setStartDate] = useState(sevenDaysAgo);
+  const [endDate, setEndDate] = useState(today);
+
+  const handleFetchBrokerTransactions = async () => {
+    if (!portfolioId) {
+      setError("Please select a portfolio first.");
+      return;
+    }
+    setIsLoading(true);
+    setError('');
+    setBrokerTransactions([]);
+    try {
+      const formattedStartDate = startDate.replace(/-/g, '');
+      const formattedEndDate = endDate.replace(/-/g, '');
+      const data = await fetchApi(`/api/transactions/fetch-broker-transactions/${portfolioId}?start_date=${formattedStartDate}&end_date=${formattedEndDate}`);
+      setBrokerTransactions(data || []);
+    } catch (error) {
+      console.error("Error fetching broker transactions:", error);
+      setError(error.message || "Failed to fetch transactions.");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleSelect = (orderNumber) => {
+    const selectedIndex = selected.indexOf(orderNumber);
+    let newSelected = [];
+    if (selectedIndex === -1) {
+      newSelected = newSelected.concat(selected, orderNumber);
+    } else {
+      newSelected = selected.filter(id => id !== orderNumber);
+    }
+    setSelected(newSelected);
+  };
+
+  const handleSelectAll = (event) => {
+    if (event.target.checked) {
+      const newSelecteds = brokerTransactions.map((t) => t.order_number);
+      setSelected(newSelecteds);
+      return;
+    }
+    setSelected([]);
+  };
+
+  // This is the function that will save the selections.
+  const handleSaveSelected = async () => {
+    setIsLoading(true);
+    setError('');
+
+    const selectedTransactions = brokerTransactions.filter(t => selected.includes(t.order_number));
+
+    const transactionsToCreate = [];
+    for (const t of selectedTransactions) {
+      const asset = assets.find(a => a.symbol === t.symbol);
+      if (!asset) {
+        setError(`Asset with symbol ${t.symbol} not found in the database. Please add it before importing transactions.`);
+        setIsLoading(false);
+        return;
+      }
+
+      // Convert YYYYMMDD to a Date object and then to ISO string
+      const year = parseInt(t.date.substring(0, 4), 10);
+      const month = parseInt(t.date.substring(4, 6), 10) - 1; // Month is 0-indexed
+      const day = parseInt(t.date.substring(6, 8), 10);
+      const transactionDate = new Date(year, month, day).toISOString();
+
+      transactionsToCreate.push({
+        portfolio_id: portfolioId,
+        asset_id: asset.id,
+        transaction_type: t.side.toLowerCase(), // 'buy' or 'sell'
+        quantity: parseFloat(t.quantity),
+        price: parseFloat(t.price),
+        transaction_date: transactionDate,
+        fee: 0, // Broker API does not provide fee in this call, default to 0
+        tax: 0, // Broker API does not provide tax in this call, default to 0
+      });
+    }
+
+    try {
+      await fetchApi('/api/transactions/batch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(transactionsToCreate),
+      });
+      alert('Successfully imported transactions!');
+      onImportSuccess(); // This will refetch transactions and close the modal
+    } catch (error) {
+      console.error("Error saving selected transactions:", error);
+      setError(error.message || "Failed to save transactions.");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onClose={onClose} maxWidth="lg" fullWidth>
+      <DialogTitle>Import Transactions from Broker</DialogTitle>
+      <DialogContent>
+        <Box sx={{ display: 'flex', gap: 2, mb: 2, alignItems: 'center' }}>
+          <TextField label="Start Date" type="date" value={startDate} onChange={e => setStartDate(e.target.value)} InputLabelProps={{ shrink: true }} />
+          <TextField label="End Date" type="date" value={endDate} onChange={e => setEndDate(e.target.value)} InputLabelProps={{ shrink: true }} />
+          <Button onClick={handleFetchBrokerTransactions} variant="contained">Fetch Transactions</Button>
+        </Box>
+        {isLoading && <CircularProgress />}
+        {error && <Typography color="error">{error}</Typography>}
+        <TableContainer component={Paper}>
+          <Table size="small">
+            <TableHead>
+              <TableRow>
+                <TableCell padding="checkbox">
+                  <Checkbox
+                    indeterminate={selected.length > 0 && selected.length < brokerTransactions.length}
+                    checked={brokerTransactions.length > 0 && selected.length === brokerTransactions.length}
+                    onChange={handleSelectAll}
+                  />
+                </TableCell>
+                <TableCell>Date</TableCell>
+                <TableCell>Symbol</TableCell>
+                <TableCell>Name</TableCell>
+                <TableCell>Side</TableCell>
+                <TableCell align="right">Quantity</TableCell>
+                <TableCell align="right">Price</TableCell>
+                <TableCell align="right">Total Amount</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {brokerTransactions.map((t) => (
+                <TableRow key={t.order_number} hover onClick={() => handleSelect(t.order_number)} role="checkbox" tabIndex={-1} selected={selected.includes(t.order_number)}>
+                  <TableCell padding="checkbox">
+                    <Checkbox checked={selected.includes(t.order_number)} />
+                  </TableCell>
+                  <TableCell>{t.date}</TableCell>
+                  <TableCell>{t.symbol}</TableCell>
+                  <TableCell>{t.name}</TableCell>
+                  <TableCell>{t.side}</TableCell>
+                  <TableCell align="right">{parseInt(t.quantity).toLocaleString()}</TableCell>
+                  <TableCell align="right">{parseFloat(t.price).toLocaleString()}</TableCell>
+                  <TableCell align="right">{parseInt(t.total_amount).toLocaleString()}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </TableContainer>
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={onClose}>Cancel</Button>
+        <Button onClick={handleSaveSelected} variant="contained" disabled={selected.length === 0}>
+          Save Selected ({selected.length})
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
+}
+
 
 function Transactions() {
   const [transactions, setTransactions] = useState([]);
@@ -137,6 +306,9 @@ function Transactions() {
   const [editedTransaction, setEditedTransaction] = useState(null);
   const [isAdding, setIsAdding] = useState(false);
   const [filters, setFilters] = useState({ portfolio: '', asset: '' });
+  
+  // New state for the import modal
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
 
   const emptyTransaction = {
     asset_id: '',
@@ -180,11 +352,20 @@ function Transactions() {
       console.error("Error fetching portfolios:", error);
     }
   }, []);
-
+  
+  // Fetch all necessary data on component mount
   useEffect(() => {
     fetchPortfolios();
     fetchAssets();
   }, [fetchPortfolios, fetchAssets]);
+
+  // Refetch transactions when the main portfolio filter changes
+  useEffect(() => {
+    if (filters.portfolio) {
+      fetchTransactions();
+    }
+  }, [filters.portfolio, fetchTransactions]);
+
 
   const handleInputChange = useCallback((e) => {
     const { name, value } = e.target;
@@ -192,9 +373,10 @@ function Transactions() {
   }, []);
 
   const handleAddClick = () => {
-    setEditedTransaction(emptyTransaction);
+    // Set the portfolio_id in the new transaction if a filter is selected
+    setEditedTransaction({ ...emptyTransaction, portfolio_id: filters.portfolio });
     setIsAdding(true);
-    setEditingTransactionId(null); // Ensure not in edit mode
+    setEditingTransactionId(null);
   };
 
   const handleCancel = () => {
@@ -241,7 +423,7 @@ function Transactions() {
         body: JSON.stringify(requestBody),
       });
 
-      handleCancel(); // Close edit/add row
+      handleCancel();
       fetchTransactions();
       alert(`Transaction ${isCreating ? 'added' : 'updated'} successfully!`);
     } catch (error) {
@@ -271,7 +453,7 @@ function Transactions() {
       fee: transaction.fee || '',
       tax: transaction.tax || '',
     });
-    setIsAdding(false); // Ensure not in add mode
+    setIsAdding(false);
   }, []);
 
   const getAssetName = useCallback((assetId) => {
@@ -280,10 +462,6 @@ function Transactions() {
     if (asset) {
       if (asset.asset_type && asset.asset_type.toLowerCase() === 'cash') return `Cash (${asset.symbol})`;
       return asset.name ? `${asset.symbol} - ${asset.name}` : asset.symbol;
-    }
-    if (typeof assetId === 'string' && assetId.startsWith('cash_')) {
-      const currency = assetId.split('_')[1].toUpperCase();
-      return `Cash (${currency})`;
     }
     return 'Unknown';
   }, [assets]);
@@ -297,10 +475,17 @@ function Transactions() {
     const { name, value } = e.target;
     setFilters(prev => ({ ...prev, [name]: value }));
   };
+  
+  const handleImportSuccess = () => {
+    fetchTransactions();
+    setIsImportModalOpen(false);
+  }
 
   const filteredTransactions = useMemo(() => {
     return transactions.filter(t => {
+      // If portfolio filter is set, transaction must match.
       const portfolioMatch = filters.portfolio ? t.portfolio_id === filters.portfolio : true;
+      // Asset filter is text-based search.
       const assetMatch = filters.asset ? getAssetName(t.asset_id).toLowerCase().includes(filters.asset.toLowerCase()) : true;
       return portfolioMatch && assetMatch;
     });
@@ -311,12 +496,15 @@ function Transactions() {
       <Typography variant="h5" gutterBottom>Manage Transactions</Typography>
 
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2, flexWrap: 'wrap', gap: 2 }}>
+        {/* Filtering UI */}
         <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', alignItems: 'center' }}>
           <FormControl sx={{ minWidth: 200 }}>
             <InputLabel>Filter by Portfolio</InputLabel>
             <Select name="portfolio" value={filters.portfolio} onChange={handleFilterChange} label="Filter by Portfolio">
               <MenuItem value="">All Portfolios</MenuItem>
-              {portfolios.map(p => <MenuItem key={p.id} value={p.id}>{p.name}</MenuItem>)}
+              {portfolios
+                .filter(p => p.environment === 'live')
+                .map(p => <MenuItem key={p.id} value={p.id}>{p.name}</MenuItem>)}
             </Select>
           </FormControl>
           <TextField
@@ -325,19 +513,33 @@ function Transactions() {
             value={filters.asset}
             onChange={handleFilterChange}
             variant="outlined"
+            size="small"
           />
-          <Button variant="contained" onClick={fetchTransactions}>Search</Button>
+          <Button variant="outlined" onClick={fetchTransactions}>Search</Button>
         </Box>
-        <Button
-          variant="contained"
-          startIcon={<AddIcon />}
-          onClick={handleAddClick}
-          disabled={isAdding || editingTransactionId !== null}
-        >
-          Add Transaction
-        </Button>
+        {/* Action Buttons */}
+        <Box sx={{ display: 'flex', gap: 2 }}>
+            <Button
+              variant="contained"
+              color="primary"
+              startIcon={<SystemUpdateAltIcon />}
+              onClick={() => setIsImportModalOpen(true)}
+              disabled={!filters.portfolio} // Only enable if a portfolio is selected
+            >
+              Import from Broker
+            </Button>
+            <Button
+              variant="contained"
+              startIcon={<AddIcon />}
+              onClick={handleAddClick}
+              disabled={isAdding || editingTransactionId !== null}
+            >
+              Add Transaction
+            </Button>
+        </Box>
       </Box>
 
+      {/* Main transactions table */}
       <TableContainer component={Paper}>
         <Table sx={{ minWidth: 650 }} aria-label="simple table">
           <TableHead>
@@ -386,6 +588,17 @@ function Transactions() {
           </TableBody>
         </Table>
       </TableContainer>
+
+      {/* Broker Import Modal */}
+      {isImportModalOpen && (
+        <BrokerTransactionImportModal
+            open={isImportModalOpen}
+            onClose={() => setIsImportModalOpen(false)}
+            portfolioId={filters.portfolio}
+            assets={assets}
+            onImportSuccess={handleImportSuccess}
+        />
+      )}
     </div>
   );
 }
