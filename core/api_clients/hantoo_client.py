@@ -19,7 +19,7 @@ class HantooClient:
         if 'KIS' not in broker_provider:
             raise ValueError(f"Unsupported broker provider: {broker_provider}")
 
-        self.is_paper = 'vps' in broker_provider
+        self.is_paper = 'VPS' in broker_provider
         if self.is_paper:
             self.base_url = "https://openapivts.koreainvestment.com:29443"
         else: # Assumes production
