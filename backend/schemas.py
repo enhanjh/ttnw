@@ -91,6 +91,7 @@ class Portfolio(PortfolioBase):
     id: PydanticObjectId
     created_at: datetime
     strategy: Optional['Strategy'] = None
+    last_rebalanced_at: Optional[datetime] = None
 
     model_config = ConfigDict(
         from_attributes=True,
@@ -116,7 +117,7 @@ class StrategyParameters(BaseModel):
 
     asset_weights: Optional[List[AssetWeightInStrategy]] = Field(None, description="List of assets and their target weights")
 
-    rebalancing_frequency: str = Field(..., description="Frequency of rebalancing (e.g., 'monthly', 'quarterly', 'annual', 'never')")
+    rebalancing_frequency: Optional[str] = Field('monthly', description="Frequency of rebalancing (e.g., 'monthly', 'quarterly', 'annual', 'never')")
     rebalancing_threshold: Optional[float] = Field(None, description="Percentage deviation from target weight to trigger rebalancing (e.g., 0.05 for 5%)")
 
     # Momentum Strategy Parameters

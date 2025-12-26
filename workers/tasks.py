@@ -1,9 +1,11 @@
 import asyncio # Added this import
 import requests # Added for exception handling
+import logging # Added for logging
+import time # Added for logging configuration
 from .celery_app import app
 from core import strategies
 from core.data_providers.backtest import BacktestDataContext
-from core.executors import BacktestExecutor, LiveExecutor # Added LiveExecutor
+from core.executors import BacktestExecutor, LiveExecutor, OrderManager # Added OrderManager
 from core.api_clients.hantoo_client import HantooClient
 from typing import Dict
 from beanie import PydanticObjectId, init_beanie # Added init_beanie
@@ -15,6 +17,15 @@ import pandas as pd # Added this import
 import motor.motor_asyncio # Added this import
 import os # Added this import
 from dotenv import load_dotenv # Added this import
+
+# Configure logging to use local time
+logging.Formatter.converter = time.localtime
+logging.basicConfig(
+    format='[%(asctime)s] [%(levelname)s] %(message)s',
+    level=logging.INFO,
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
+logger = logging.getLogger(__name__)
 
 # Load .env file from the same directory
 dotenv_path = os.path.join(os.getcwd(), '.env')
@@ -96,7 +107,7 @@ def run_backtest_task(
                 raise ValueError(f"Unknown strategy type: {strategy_type}")
 
             if debug:
-                print(f"[DEBUG] run_backtest_task received strategy_params: {strategy_params}")
+                logger.info(f"[DEBUG] run_backtest_task received strategy_params: {strategy_params}")
 
             # 3. Initialize and run the executor
             strategy_instance = StrategyClass(strategy_params=strategy_params)
@@ -141,7 +152,7 @@ def run_backtest_task(
                 "initial_capital": initial_capital,
             }
         except Exception as e:
-            print(f"An error occurred during backtest task: {e}")
+            logger.error(f"An error occurred during backtest task: {e}")
             # If the backtest_result was created, update its status to FAILED
             if backtest_result:
                 backtest_result.status = "FAILED"
@@ -159,7 +170,7 @@ def run_backtest_task(
 def run_live_strategy_task(portfolio_id: str):
     async def _run_live_strategy():
         if not is_market_open_time():
-            print(f"[{datetime.now()}] Market is closed. Skipping live strategy run for portfolio {portfolio_id}.")
+            logger.info(f"Market is closed. Skipping live strategy run for portfolio {portfolio_id}.")
             return {"status": "skipped", "reason": "Market is closed"}
 
         client = motor.motor_asyncio.AsyncIOMotorClient(DATABASE_URL)
@@ -208,17 +219,17 @@ def run_live_strategy_task(portfolio_id: str):
                 broker_account_no=portfolio_obj.broker_account_no
             )
             
-            live_executor.run() # This will execute one iteration of the strategy
+            await live_executor.run() # This will execute one iteration of the strategy
 
             return {"status": "success", "message": f"Live strategy run for portfolio {portfolio_id} completed."}
 
         except requests.exceptions.RequestException:
             # Re-raise network exceptions to trigger Celery retry.
             # LiveExecutor's idempotency check (get_open_orders) prevents double spending.
-            print(f"[Retryable Error] Network issue during live strategy run for portfolio {portfolio_id}. Celery will retry.")
+            logger.warning(f"[Retryable Error] Network issue during live strategy run for portfolio {portfolio_id}. Celery will retry.")
             raise
         except Exception as e:
-            print(f"An error occurred during live strategy task for portfolio {portfolio_id}: {e}")
+            logger.error(f"An error occurred during live strategy task for portfolio {portfolio_id}: {e}")
             return {"status": "error", "error": str(e)}
 
     return asyncio.run(_run_live_strategy())
@@ -230,16 +241,24 @@ def execute_trade_task(symbol: str, side: str, quantity: int, price: int, broker
     A simple Celery task that executes a single trade order.
     This is intended to be called by the MarketMonitor when a strategy generates a signal.
     """
-    try:
-        client = HantooClient(broker_provider, broker_account_no)
-        result = client.place_order(symbol, quantity, price, side, order_type=order_type)
-        print(f"Trade execution result: {result}")
-        return {"status": "success", "result": result}
-    except ValueError as e:
-        # Validation errors (e.g. quantity <= 0) are not retryable.
-        print(f"Validation error in trade execution task: {e}")
-        return {"status": "error", "error": str(e)}
-    # Network errors (RequestException) will bubble up and trigger Celery retry logic.
+    async def _execute():
+        # Import OrderManager here to avoid circular imports if any (though unlikely given the file structure)
+        # or use the one imported at module level if added.
+        # Ideally, add `from core.executors.order_manager import OrderManager` at the top of the file
+        # But since I'm editing the function, I'll rely on the top-level import I'm about to add/verify.
+        # Assuming top level import is added.
+        try:
+            order_manager = OrderManager(broker_provider, broker_account_no)
+            result = await order_manager.execute_order(symbol, quantity, price, side, order_type=order_type)
+            logger.info(f"Trade execution result: {result}")
+            if result.get("status") == "error":
+                 raise ValueError(result.get("message")) # Raise to potentially trigger retry or just report failure
+            return {"status": "success", "result": result}
+        except ValueError as e:
+            logger.error(f"Validation/Broker error in trade execution task: {e}")
+            return {"status": "error", "error": str(e)}
+            
+    return asyncio.run(_execute())
 
 # Example of how to call this task from another part of the application (e.g., the web service):
 # from workers.tasks import run_backtest_task

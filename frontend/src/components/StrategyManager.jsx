@@ -496,6 +496,9 @@ function StrategyManager() {
                   label="Rebalancing Frequency"
                   onChange={handleStrategyChange}
                 >
+                  <MenuItem value="always">Always (Debug/Test)</MenuItem>
+                  <MenuItem value="daily">Daily</MenuItem>
+                  <MenuItem value="weekly">Weekly</MenuItem>
                   <MenuItem value="monthly">Monthly</MenuItem>
                   <MenuItem value="quarterly">Quarterly</MenuItem>
                   <MenuItem value="annual">Annual</MenuItem>

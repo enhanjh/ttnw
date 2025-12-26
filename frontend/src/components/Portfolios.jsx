@@ -479,6 +479,13 @@ function Portfolios() {
                                     <Typography component="span" variant="body2" color="text.secondary" sx={{ display: 'block' }}>
                                         Telegram IDs: {portfolio.allowed_telegram_ids && portfolio.allowed_telegram_ids.length > 0 ? portfolio.allowed_telegram_ids.join(', ') : 'None'}
                                     </Typography>
+                                    {portfolio.strategy?.parameters?.rebalancing_frequency && portfolio.strategy.parameters.rebalancing_frequency !== 'never' && (
+                                        <Typography component="span" variant="body2" color="text.secondary" sx={{ display: 'block' }}>
+                                            Last Rebalanced: {portfolio.last_rebalanced_at 
+                                                ? new Date(portfolio.last_rebalanced_at.endsWith('Z') ? portfolio.last_rebalanced_at : portfolio.last_rebalanced_at + 'Z').toLocaleString() 
+                                                : 'Never (or not yet run)'}
+                                        </Typography>
+                                    )}
                                 </React.Fragment>
                             }
                         />

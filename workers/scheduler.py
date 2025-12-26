@@ -3,6 +3,7 @@ import asyncio
 import os
 import sys
 import time
+import logging
 from datetime import datetime
 import motor.motor_asyncio
 from beanie import init_beanie
@@ -14,6 +15,15 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from backend import models
 from workers.tasks import run_live_strategy_task
 from core.utils.market_schedule import is_market_open_time
+
+# Configure logging to use local time
+logging.Formatter.converter = time.localtime
+logging.basicConfig(
+    format='[%(asctime)s] [%(levelname)s] %(message)s',
+    level=logging.INFO,
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
+logger = logging.getLogger(__name__)
 
 # Load .env
 dotenv_path = os.path.join(os.getcwd(), '.env')
@@ -41,7 +51,7 @@ async def init_db():
     )
 
 async def check_and_run_strategies():
-    print(f"[{datetime.now()}] Checking for active live portfolios...")
+    logger.info("Checking for active live portfolios...")
     try:
         # Find all active live portfolios that have a strategy linked
         portfolios = await models.Portfolio.find(
@@ -51,26 +61,26 @@ async def check_and_run_strategies():
         ).to_list()
 
         if not portfolios:
-            print("No active live portfolios found.")
+            logger.info("No active live portfolios found.")
             return
 
         for portfolio in portfolios:
-            print(f"Triggering strategy for portfolio: {portfolio.name} (ID: {portfolio.id})")
+            logger.info(f"Triggering strategy for portfolio: {portfolio.name} (ID: {portfolio.id})")
             # Trigger the Celery task
             run_live_strategy_task.delay(str(portfolio.id))
             
     except Exception as e:
-        print(f"Error in check_and_run_strategies: {e}")
+        logger.error(f"Error in check_and_run_strategies: {e}")
 
 async def main():
     await init_db()
-    print("Scheduler started. Running strategy checks every 60 seconds.")
+    logger.info("Scheduler started. Running strategy checks every 60 seconds.")
     
     while True:
         if is_market_open_time():
             await check_and_run_strategies()
         else:
-            print(f"[{datetime.now()}] Market is closed. Skipping strategy checks.")
+            logger.info("Market is closed. Skipping strategy checks.")
             
         # Sleep for 60 seconds (or configurable interval)
         await asyncio.sleep(60)
@@ -79,4 +89,4 @@ if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        print("Scheduler stopped.")
+        logger.info("Scheduler stopped.")

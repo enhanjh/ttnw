@@ -58,6 +58,7 @@ services:
       - PYTHONUNBUFFERED=1
       - DATABASE_URL=${DATABASE_URL:-mongodb://mongodb:27017}
       - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
+      - BACKEND_API_URL=http://backend:8000
     depends_on:
       backend:
         condition: service_started

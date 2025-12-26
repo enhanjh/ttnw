@@ -14,6 +14,7 @@ class Portfolio(Document):
     broker_account_no: Optional[str] = Field(None, max_length=50)
     allowed_telegram_ids: Optional[List[int]] = Field(default_factory=list)
     strategy: Optional[Link['Strategy']] = None
+    last_rebalanced_at: Optional[datetime] = Field(None, description="The last time a rebalancing occurred")
     created_at: datetime = Field(default_factory=datetime.now)
 
     class Settings:
